@@ -1,11 +1,11 @@
 import requests
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, JobQueue
 from flask import Flask
 import threading
 
 # إعدادات البوت
-TOKEN = "7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M"  # استبدل التوكن هنا
+TOKEN = "7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M"  # ضع توكن البوت الخاص بك هنا
 API_URL = "https://web1.shinemonitor.com/public/?sign=8201cdda1887b263a9985dfb298c09ae4a750407&salt=1734589043288&token=f2cd066275956f1dc5a3b20b395767fce2bbebca5f812376f4a56d242785cdc3&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
 
 # متغير لتخزين نسبة البطارية السابقة
@@ -40,8 +40,7 @@ def fetch_battery_percentage():
 
 
 # دالة /battery لعرض نسبة البطارية وبدء المراقبة
-async def battery_and_monitor(update: Update,
-                              context: ContextTypes.DEFAULT_TYPE):
+async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global previous_battery
     chat_id = update.effective_chat.id
 
@@ -60,17 +59,18 @@ async def battery_and_monitor(update: Update,
         for job in job_removed:
             job.schedule_removal()  # إيقاف المهمة القديمة إن وجدت
 
-        context.job_queue.run_repeating(monitor_battery,
-                                        interval=60,
-                                        first=5,
-                                        chat_id=chat_id,
-                                        name=str(chat_id))
+        context.job_queue.run_repeating(
+            monitor_battery,
+            interval=60,
+            first=5,
+            chat_id=chat_id,
+            name=str(chat_id)
+        )
 
         await update.message.reply_text(
             "🔍 بدأ مراقبة البطارية. سأرسل تنبيه عند انخفاض الشحن بنسبة 1%.")
     else:
-        await update.message.reply_text("⚠️ فشل في الحصول على بيانات البطارية."
-                                        )
+        await update.message.reply_text("⚠️ فشل في الحصول على بيانات البطارية.")
 
 
 # دالة مراقبة البطارية بشكل دوري
@@ -103,13 +103,14 @@ async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # إعداد البوت
 def main():
-    # إنشاء التطبيق
-    tg_app = Application.builder().token(TOKEN).build()
+    # إنشاء التطبيق وتهيئة JobQueue
+    tg_app = ApplicationBuilder().token(TOKEN).build()
+    job_queue = tg_app.job_queue
+    job_queue.start()  # بدء JobQueue
 
     # إضافة الأوامر
-    tg_app.add_handler(CommandHandler(
-        "battery", battery_and_monitor))  # أمر البطارية + بدء المراقبة
-    tg_app.add_handler(CommandHandler("stop", stop_monitoring))  # إيقاف المراقبة
+    tg_app.add_handler(CommandHandler("battery", battery_and_monitor))
+    tg_app.add_handler(CommandHandler("stop", stop_monitoring))
 
     # تشغيل خادم Flask في خيط مستقل
     flask_thread = threading.Thread(target=run_flask)
