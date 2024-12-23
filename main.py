@@ -30,15 +30,15 @@ def run_flask():
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
 
 # دالة لإنشاء URL ديناميكي لجلب البيانات
-def generate_buzzer_url():
+def generate_buzzer_url(action):
     try:
         # إعداد القيم الأساسية
         salt = str(int(time.time() * 1000))  # الوقت الحالي بالميللي ثانية
-        raw_sign = f"{TOKEN_API}{salt}"  # إنشاء نص التوقيع
+        raw_sign = f"{TOKEN_API}{salt}{action}std_buzzer_ctrl_a1W0040157841922963224075040372451"
         sign = hashlib.sha1(raw_sign.encode('utf-8')).hexdigest()  # توليد التوقيع
 
         params = {
-            "action": "queryDeviceCtrlValue",
+            "action": action,
             "source": "1",
             "pn": "W0040157841922",
             "sn": "96322407504037",
@@ -86,7 +86,7 @@ def fetch_battery_data():
 # دالة للتحقق من حالة الطنين
 def check_buzzer_status():
     try:
-        dynamic_url = generate_buzzer_url()
+        dynamic_url = generate_buzzer_url("queryDeviceCtrlValue")
         if not dynamic_url:
             return None
 
@@ -110,7 +110,7 @@ def check_buzzer_status():
 def set_buzzer_status(enable):
     try:
         val = "Enable" if enable else "Disable"
-        dynamic_url = generate_buzzer_url()
+        dynamic_url = generate_buzzer_url("setDeviceCtrlValue")
         if not dynamic_url:
             return False
 
