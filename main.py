@@ -8,7 +8,7 @@ import threading
 # إعدادات البوت
 TOKEN = "7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M"  # ضع توكن البوت الخاص بك هنا
 API_URL = "https://web1.shinemonitor.com/public/?sign=8201cdda1887b263a9985dfb298c09ae4a750407&salt=1734589043288&token=f2cd066275956f1dc5a3b20b395767fce2bbebca5f812376f4a56d242785cdc3&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
-BUZZER_API_URL = "https://web1.shinemonitor.com/public/"
+BUZZER_API_URL = "https://web1.shinemonitor.com/public/?sign=7846c6a06e25d0507372b3c721992cf6794bf326&salt=1734987117192&token=8f46000a563f0e3cc0c998ac46ca5cf11eab7e372f3b472abc7a5c0ea03c00e7&action=queryDeviceCtrlValue&source=1&pn=W0040157841922&sn=96322407504037&devcode=2451&devaddr=1&id=std_buzzer_ctrl_a&i18n=en_US"
 
 # المتغيرات لتخزين القيم السابقة
 previous_battery = None
@@ -65,6 +65,7 @@ def check_buzzer_status():
             "sn": "96322407504037",
             "i18n": "en_US"
         })
+        print(f"Response: {response.status_code}, {response.text}")  # عرض الاستجابة
         if response.status_code == 200:
             data = response.json()
             return data['dat']['val']
