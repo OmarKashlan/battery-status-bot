@@ -65,7 +65,7 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
             power_status = "لا يوجد استهلاك على البطارية 💡"
             active_power_w = 0
         else:
-            if active_power_w > 800:
+            if active_power_w > 500:
                 power_status = "يوجد استهلاك كبير 🔥"
             elif active_power_w > 300:
                 power_status = "يوجد استهلاك متوسط ⚡"
@@ -126,7 +126,7 @@ async def monitor_battery(context: ContextTypes.DEFAULT_TYPE):
             previous_voltage = grid_voltage
 
         # تنبيه عند أي تغيير بنسبة 1%
-        if abs(current_battery - previous_battery) >= 1:
+        if abs(current_battery - previous_battery) >= 3:
             change = "زاد" if current_battery > previous_battery else "انخفض"
             await context.bot.send_message(
                 chat_id=chat_id,
