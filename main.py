@@ -1,13 +1,14 @@
 import os
 import requests
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, JobQueue
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, JobQueue
 from flask import Flask
 import threading
 
 # إعدادات البوت
 TOKEN = "7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M"  # ضع توكن البوت الخاص بك هنا
 API_URL = "https://web1.shinemonitor.com/public/?sign=8201cdda1887b263a9985dfb298c09ae4a750407&salt=1734589043288&token=f2cd066275956f1dc5a3b20b395767fce2bbebca5f812376f4a56d242785cdc3&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
+BUZZER_API_URL = "https://web1.shinemonitor.com/public/"
 
 # المتغيرات لتخزين القيم السابقة
 previous_battery = None
@@ -51,6 +52,48 @@ def fetch_battery_data():
         print(f"Error fetching data: {e}")
         return None, None, None, None
 
+# دالة للتحقق من حالة الطنين
+def check_buzzer_status():
+    try:
+        response = requests.get(BUZZER_API_URL, params={
+            "action": "queryDeviceCtrlValue",
+            "id": "std_buzzer_ctrl_a",
+            "source": "1",
+            "devcode": "2451",
+            "pn": "W0040157841922",
+            "devaddr": "1",
+            "sn": "96322407504037",
+            "i18n": "en_US"
+        })
+        if response.status_code == 200:
+            data = response.json()
+            return data['dat']['val']
+        else:
+            return None
+    except Exception as e:
+        print(f"Error fetching buzzer status: {e}")
+        return None
+
+# دالة لتغيير حالة الطنين
+def set_buzzer_status(enable):
+    try:
+        val = "Enable" if enable else "Disable"
+        response = requests.post(BUZZER_API_URL, params={
+            "action": "setDeviceCtrlValue",
+            "id": "std_buzzer_ctrl_a",
+            "val": val,
+            "source": "1",
+            "devcode": "2451",
+            "pn": "W0040157841922",
+            "devaddr": "1",
+            "sn": "96322407504037",
+            "i18n": "en_US"
+        })
+        return response.status_code == 200
+    except Exception as e:
+        print(f"Error setting buzzer status: {e}")
+        return False
+
 # دالة /battery لعرض البيانات ومراقبة الشحن
 async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global previous_battery, previous_voltage, previous_charging, previous_power
@@ -60,7 +103,6 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
     current_battery, grid_voltage, charging, active_power_w = fetch_battery_data()
 
     if current_battery is not None:
-        # تقييم استهلاك الطاقة بناءً على وجود الكهرباء
         if charging:
             power_status = "لا يوجد استهلاك على البطارية 💡"
             active_power_w = 0
@@ -81,86 +123,46 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         await update.message.reply_text(message)
 
-        # حفظ القيم الحالية للمراقبة
-        if previous_battery is None or previous_voltage is None or previous_charging is None or previous_power is None:
-            previous_battery = current_battery
-            previous_voltage = grid_voltage
-            previous_charging = charging
-            previous_power = active_power_w
+async def buzzer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    status = check_buzzer_status()
+    if status is None:
+        await update.message.reply_text("⚠️ تعذر الحصول على حالة الطنين.")
+        return
 
-        # إعداد المهام المتكررة
-        job_removed = context.job_queue.get_jobs_by_name(str(chat_id))
-        for job in job_removed:
-            job.schedule_removal()
+    status_text = "مُفعل 🔊" if status == "Enable" else "متوقف 🔕"
 
-        context.job_queue.run_repeating(
-            monitor_battery,
-            interval=10,  # تحديث كل 10 ثوانٍ
-            first=5,
-            chat_id=chat_id,
-            name=str(chat_id)
-        )
+    keyboard = [
+        [InlineKeyboardButton("تشغيل 🔊", callback_data="enable_buzzer")],
+        [InlineKeyboardButton("إيقاف 🔕", callback_data="disable_buzzer")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await update.message.reply_text("🔍 سأرسل تنبيهات لوحدي عند حدوث تغييرات, انا موجود لراحتك 😊.")
-    else:
-        await update.message.reply_text("⚠️ فشل في الحصول على بيانات البطارية.")
+    await update.message.reply_text(
+        f"🔔 حالة الطنين الحالية: {status_text}\nاختر أحد الخيارات أدناه:",
+        reply_markup=reply_markup
+    )
 
-# دالة مراقبة البطارية بشكل دوري
-async def monitor_battery(context: ContextTypes.DEFAULT_TYPE):
-    global previous_battery, previous_voltage, previous_charging, previous_power
-    job = context.job
-    chat_id = job.chat_id
+async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-    # جلب البيانات الحالية
-    current_battery, grid_voltage, charging, active_power_w = fetch_battery_data()
+    if query.data == "enable_buzzer":
+        success = set_buzzer_status(True)
+        message = "تم تفعيل الطنين بنجاح! 🔊" if success else "⚠️ فشل في تفعيل الطنين."
+    elif query.data == "disable_buzzer":
+        success = set_buzzer_status(False)
+        message = "تم إيقاف الطنين بنجاح! 🔕" if success else "⚠️ فشل في إيقاف الطنين."
 
-    if current_battery is not None:
-        charging_status = "يوجد كهرباء 🔌 ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
-
-        # تحذير عند انخفاض الفولت إلى 168V أو أقل
-        if grid_voltage <= 168.0 and grid_voltage != previous_voltage:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"⚠️ تحذير: انخفض فولت الكهرباء إلى {grid_voltage:.2f}V!"
-            )
-            previous_voltage = grid_voltage
-
-        # تنبيه عند أي تغيير بنسبة 1%
-        if abs(current_battery - previous_battery) >= 3:
-            change = "زاد" if current_battery > previous_battery else "انخفض"
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=f"⚠️ تنبيه: {change} شحن البطارية إلى {current_battery:.0f}%!"
-            )
-            previous_battery = current_battery
-
-        # تنبيه إذا تغيرت حالة الشحن
-        if charging != previous_charging:
-            status = "⚡ عادت الكهرباء! الشحن مستمر." if charging else "⚠️ انقطعت الكهرباء! الشحن متوقف."
-            await context.bot.send_message(chat_id=chat_id, text=status)
-            previous_charging = charging
-
-# دالة لإيقاف المراقبة
-async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    job_removed = context.job_queue.get_jobs_by_name(str(chat_id))
-    for job in job_removed:
-        job.schedule_removal()
-
-    await update.message.reply_text("⏹️ تم إيقاف مراقبة البطارية.")
+    await query.edit_message_text(text=message)
 
 # إعداد البوت
 def main():
     tg_app = ApplicationBuilder().token(TOKEN).build()
-    job_queue = tg_app.job_queue
-    job_queue.start()
-
     tg_app.add_handler(CommandHandler("battery", battery_and_monitor))
-    tg_app.add_handler(CommandHandler("stop", stop_monitoring))
-
+    tg_app.add_handler(CommandHandler("buzzer", buzzer))
+    tg_app.add_handler(CallbackQueryHandler(button))
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.start()
-
     print("✅ البوت يعمل الآن...")
     tg_app.run_polling()
 
