@@ -6,8 +6,8 @@ from flask import Flask
 import threading
 
 # إعدادات البوت
-TOKEN = os.getenv("7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M")  # توكن البوت من المتغيرات البيئية
-API_URL = os.getenv("https://web1.shinemonitor.com/public/?sign=8201cdda1887b263a9985dfb298c09ae4a750407&salt=1734589043288&token=f2cd066275956f1dc5a3b20b395767fce2bbebca5f812376f4a56d242785cdc3&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US")  # رابط API من المتغيرات البيئية
+TOKEN = "7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M"  # ضع توكن البوت الخاص بك هنا
+API_URL = "https://web1.shinemonitor.com/public/?sign=8201cdda1887b263a9985dfb298c09ae4a750407&salt=1734589043288&token=f2cd066275956f1dc5a3b20b395767fce2bbebca5f812376f4a56d242785cdc3&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
 
 # المتغيرات لتخزين القيم السابقة
 previous_battery = None
