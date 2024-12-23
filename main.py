@@ -60,13 +60,17 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
     current_battery, grid_voltage, charging, active_power_w = fetch_battery_data()
 
     if current_battery is not None:
-        # تقييم استهلاك الطاقة
-        if active_power_w > 800:
-            power_status = "يوجد استهلاك كبير 🔥"
-        elif active_power_w > 300:
-            power_status = "يوجد استهلاك متوسط ⚡"
+        # تقييم استهلاك الطاقة بناءً على وجود الكهرباء
+        if charging:
+            power_status = "لا يوجد استهلاك على البطارية 💡"
+            active_power_w = 0
         else:
-            power_status = "يوجد استهلاك قليل 💡"
+            if active_power_w > 800:
+                power_status = "يوجد استهلاك كبير 🔥"
+            elif active_power_w > 300:
+                power_status = "يوجد استهلاك متوسط ⚡"
+            else:
+                power_status = "يوجد استهلاك قليل 💡"
 
         charging_status = "يوجد كهرباء 🔌 ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
         message = (
@@ -155,14 +159,6 @@ def main():
     tg_app.add_handler(CommandHandler("stop", stop_monitoring))
 
     flask_thread = threading.Thread(target=run_flask)
-    flask_thread.start()
-
-    print("✅ البوت يعمل الآن...")
-    tg_app.run_polling()
-
-if __name__ == "__main__":
-    main()
-
     flask_thread.start()
 
     print("✅ البوت يعمل الآن...")
