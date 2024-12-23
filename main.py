@@ -1,5 +1,7 @@
 import os
 import requests
+import time
+import hashlib
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, JobQueue
 from flask import Flask
@@ -9,6 +11,7 @@ import threading
 TOKEN = "7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M"  # ضع توكن البوت الخاص بك هنا
 API_URL = "https://web1.shinemonitor.com/public/?sign=8201cdda1887b263a9985dfb298c09ae4a750407&salt=1734589043288&token=f2cd066275956f1dc5a3b20b395767fce2bbebca5f812376f4a56d242785cdc3&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
 BASE_URL = "https://web1.shinemonitor.com/public/"
+TOKEN_API = "8f46000a563f0e3cc0c998ac46ca5cf11eab7e372f3b472abc7a5c0ea03c00e7"
 
 # المتغيرات لتخزين القيم السابقة
 previous_battery = None
@@ -29,6 +32,11 @@ def run_flask():
 # دالة لإنشاء URL ديناميكي لجلب البيانات
 def generate_buzzer_url():
     try:
+        # إعداد القيم الأساسية
+        salt = str(int(time.time() * 1000))  # الوقت الحالي بالميللي ثانية
+        raw_sign = f"{TOKEN_API}{salt}"  # إنشاء نص التوقيع
+        sign = hashlib.sha1(raw_sign.encode('utf-8')).hexdigest()  # توليد التوقيع
+
         params = {
             "action": "queryDeviceCtrlValue",
             "source": "1",
@@ -37,7 +45,10 @@ def generate_buzzer_url():
             "devcode": "2451",
             "devaddr": "1",
             "id": "std_buzzer_ctrl_a",
-            "i18n": "en_US"
+            "i18n": "en_US",
+            "salt": salt,
+            "token": TOKEN_API,
+            "sign": sign
         }
         response = requests.get(BASE_URL, params=params)
         print("Generated URL:", response.url)  # لعرض الرابط في السجلات
