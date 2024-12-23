@@ -72,12 +72,12 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
             else:
                 power_status = "يوجد استهلاك قليل 💡"
 
-        charging_status = "يوجد كهرباء 🔌 ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
+        charging_status = "يوجد كهرباء ✔️ ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
         message = (
             f"🔋 نسبة شحن البطارية: {current_battery:.0f}%\n"
             f"⚡ فولت الكهرباء: {grid_voltage:.2f}V\n"
             f"🔌 حالة الشحن: {charging_status}\n"
-            f"⚙️ استهلاك الكهرباء: {active_power_w:.0f}W - {power_status}"
+            f"⚙️ استهلاك البطارية: {active_power_w:.0f}W - {power_status}"
         )
         await update.message.reply_text(message)
 
@@ -101,7 +101,7 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
             name=str(chat_id)
         )
 
-        await update.message.reply_text("🔍 بدأ مراقبة البطارية والفولت. سأرسل تنبيهات عند حدوث تغييرات.")
+        await update.message.reply_text("🔍 سأرسل تنبيهات لوحدي عند حدوث تغييرات, انا موجود لراحتك 😊.")
     else:
         await update.message.reply_text("⚠️ فشل في الحصول على بيانات البطارية.")
 
