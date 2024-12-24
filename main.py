@@ -7,8 +7,8 @@ import threading
 import datetime
 
 # إعدادات البوت
-TOKEN = "YOUR_BOT_TOKEN"  # ضع توكن البوت الخاص بك هنا
-API_URL = "YOUR_API_URL"
+TOKEN = "7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M"  # ضع توكن البوت الخاص بك هنا
+API_URL = "https://web1.shinemonitor.com/public/?sign=8201cdda1887b263a9985dfb298c09ae4a750407&salt=1734589043288&token=f2cd066275956f1dc5a3b20b395767fce2bbebca5f812376f4a56d242785cdc3&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
 
 # المتغيرات لتخزين القيم السابقة
 previous_battery = None
@@ -72,11 +72,11 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
             active_power_w = 0
         else:
             if active_power_w > 500:
-                power_status = "يوجد استهلاك كبير 🔥"
+                power_status = "يوجد استهلاك كبير 🛑"
             elif active_power_w > 300:
-                power_status = "يوجد استهلاك متوسط ⚡"
+                power_status = "يوجد استهلاك متوسط ⚠️"
             else:
-                power_status = "يوجد استهلاك قليل 💡"
+                power_status = "يوجد استهلاك قليل ✅"
 
         charging_status = "يوجد كهرباء ✔️ ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
         message = (
