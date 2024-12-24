@@ -50,9 +50,7 @@ def generate_buzzer_url(action):
             "token": TOKEN_API,
             "sign": sign
         }
-        response = requests.get(BASE_URL, params=params)
-        print("Generated URL:", response.url)  # لعرض الرابط في السجلات
-        return response.url
+        return params
     except Exception as e:
         print(f"Error generating URL: {e}")
         return None
@@ -86,11 +84,8 @@ def fetch_battery_data():
 # دالة للتحقق من حالة الطنين
 def check_buzzer_status():
     try:
-        dynamic_url = generate_buzzer_url("queryDeviceCtrlValue")
-        if not dynamic_url:
-            return None
-
-        response = requests.get(dynamic_url)
+        params = generate_buzzer_url("queryDeviceCtrlValue")
+        response = requests.get(BASE_URL, params=params)
         print(f"Response: {response.status_code}, {response.text}")  # عرض الاستجابة
         if response.status_code == 200:
             data = response.json()
@@ -110,11 +105,9 @@ def check_buzzer_status():
 def set_buzzer_status(enable):
     try:
         val = "Enable" if enable else "Disable"
-        dynamic_url = generate_buzzer_url("setDeviceCtrlValue")
-        if not dynamic_url:
-            return False
-
-        response = requests.post(dynamic_url, params={"val": val})
+        params = generate_buzzer_url("setDeviceCtrlValue")
+        params["val"] = val
+        response = requests.post(BASE_URL, params=params)
         return response.status_code == 200
     except Exception as e:
         print(f"Error setting buzzer status: {e}")
