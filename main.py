@@ -1,10 +1,9 @@
 import os
 import requests
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, CallbackQueryHandler, JobQueue
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, JobQueue
 from flask import Flask
 import threading
-import datetime
 
 # إعدادات البوت
 TOKEN = "7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M"  # ضع توكن البوت الخاص بك هنا
@@ -15,7 +14,6 @@ previous_battery = None
 previous_voltage = None
 previous_charging = None
 previous_power = None
-last_charging_time = None
 
 # خادم Flask لضمان استمرارية التشغيل
 app = Flask(__name__)
@@ -55,18 +53,14 @@ def fetch_battery_data():
 
 # دالة /battery لعرض البيانات ومراقبة الشحن
 async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global previous_battery, previous_voltage, previous_charging, previous_power, last_charging_time
+    global previous_battery, previous_voltage, previous_charging, previous_power
     chat_id = update.effective_chat.id
 
     # جلب البيانات الحالية
     current_battery, grid_voltage, charging, active_power_w = fetch_battery_data()
 
     if current_battery is not None:
-        # تحديث وقت آخر شحن
-        if charging:
-            last_charging_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # تقييم استهلاك الطاقة
+        # تقييم استهلاك الطاقة بناءً على وجود الكهرباء
         if charging:
             power_status = "لا يوجد استهلاك على البطارية 💡"
             active_power_w = 0
@@ -85,39 +79,66 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"🔌 حالة الشحن: {charging_status}\n"
             f"⚙️ استهلاك البطارية: {active_power_w:.0f}W - {power_status}"
         )
+        await update.message.reply_text(message)
 
-        # إضافة زر حالة الكهرباء
-        keyboard = [[InlineKeyboardButton("حالة الكهرباء", callback_data='check_status')],
-                    [InlineKeyboardButton("electric - حالة الكهرباء", callback_data='electric_status')]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        # حفظ القيم الحالية للمراقبة
+        if previous_battery is None or previous_voltage is None or previous_charging is None or previous_power is None:
+            previous_battery = current_battery
+            previous_voltage = grid_voltage
+            previous_charging = charging
+            previous_power = active_power_w
 
-        await update.message.reply_text(message, reply_markup=reply_markup)
+        # إعداد المهام المتكررة
+        job_removed = context.job_queue.get_jobs_by_name(str(chat_id))
+        for job in job_removed:
+            job.schedule_removal()
 
-        # إعداد المراقبة الدورية
         context.job_queue.run_repeating(
             monitor_battery,
-            interval=10,
+            interval=10,  # تحديث كل 10 ثوانٍ
             first=5,
             chat_id=chat_id,
             name=str(chat_id)
         )
 
-        await update.message.reply_text("🔍 سأرسل تنبيهات لوحدي عند حدوث تغييرات, انا موجود لراحتك 😊.")
+        await update.message.reply_text("🔍 سأرسل تنبيهات لوحدي عند حدوث تغييرات, انا موجود لراحتك فلوكة 😊.")
     else:
         await update.message.reply_text("⚠️ فشل في الحصول على بيانات البطارية.")
 
-# دالة زر حالة الكهرباء
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+# دالة مراقبة البطارية بشكل دوري
+async def monitor_battery(context: ContextTypes.DEFAULT_TYPE):
+    global previous_battery, previous_voltage, previous_charging, previous_power
+    job = context.job
+    chat_id = job.chat_id
 
-    if query.data == 'check_status':
-        if last_charging_time:
-            await query.edit_message_text(text=f"📅 آخر وقت تم فيه الشحن: {last_charging_time}")
-        else:
-            await query.edit_message_text(text="❌ لم يتم تسجيل وقت شحن سابق.")
-    elif query.data == 'electric_status':
-        await query.edit_message_text(text="⚡ حالة الكهرباء الحالية: يتم التحقق...")
+    # جلب البيانات الحالية
+    current_battery, grid_voltage, charging, active_power_w = fetch_battery_data()
+
+    if current_battery is not None:
+        charging_status = "يوجد كهرباء 🔌 ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
+
+        # تحذير عند انخفاض الفولت إلى 168V أو أقل
+        if grid_voltage <= 168.0 and grid_voltage != previous_voltage:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"⚠️ تحذير: انخفض فولت الكهرباء إلى {grid_voltage:.2f}V!"
+            )
+            previous_voltage = grid_voltage
+
+        # تنبيه عند أي تغيير بنسبة 1%
+        if abs(current_battery - previous_battery) >= 3:
+            change = "زاد" if current_battery > previous_battery else "انخفض"
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"⚠️ تنبيه: {change} شحن البطارية إلى {current_battery:.0f}%!"
+            )
+            previous_battery = current_battery
+
+        # تنبيه إذا تغيرت حالة الشحن
+        if charging != previous_charging:
+            status = "⚡ عادت الكهرباء! الشحن مستمر." if charging else "⚠️ انقطعت الكهرباء! الشحن متوقف."
+            await context.bot.send_message(chat_id=chat_id, text=status)
+            previous_charging = charging
 
 # دالة لإيقاف المراقبة
 async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -136,7 +157,6 @@ def main():
 
     tg_app.add_handler(CommandHandler("battery", battery_and_monitor))
     tg_app.add_handler(CommandHandler("stop", stop_monitoring))
-    tg_app.add_handler(CallbackQueryHandler(button_callback))
 
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.start()
