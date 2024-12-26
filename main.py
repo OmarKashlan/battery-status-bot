@@ -69,6 +69,8 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
                 power_status = "يوجد استهلاك كبير 🛑"
             elif active_power_w > 300:
                 power_status = "يوجد استهلاك متوسط ⚠️"
+            elif active_power_w = 0:
+                power_status = "لا يوجد استهلاك مطلقاً"
             else:
                 power_status = "يوجد استهلاك قليل ✅"
 
