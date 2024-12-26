@@ -7,7 +7,7 @@ import threading
 
 # إعدادات البوت
 TOKEN = "7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M"  # ضع توكن البوت الخاص بك هنا
-API_URL = "https://web1.shinemonitor.com/public/?sign=8201cdda1887b263a9985dfb298c09ae4a750407&salt=1734589043288&token=f2cd066275956f1dc5a3b20b395767fce2bbebca5f812376f4a56d242785cdc3&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
+API_URL = "https://web1.shinemonitor.com/public/?sign=60c79db949b151cff896351c93fe1fc61e0780fa&salt=1735208870760&token=b0d7aa9819038781fb04959fa028dadc497d4f3bb6672b761ae3944d522da951&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
 
 # المتغيرات لتخزين القيم السابقة
 previous_battery = None
