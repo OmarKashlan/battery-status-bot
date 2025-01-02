@@ -105,7 +105,7 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         await update.message.reply_text("🔍 سأرسل تنبيهات لوحدي عند حدوث تغييرات, انا موجود لراحتك فلوكة 😊.")
     else:
-        await update.message.reply_text("⚠️ فشل في الحصول على بيانات البطارية.")
+        await update.message.reply_text("⚠️ فشل في الحصول على بيانات البطارية, يرجى الطلب من عمر تحديث الخدمة.")
 
 # دالة مراقبة البطارية بشكل دوري
 async def monitor_battery(context: ContextTypes.DEFAULT_TYPE):
