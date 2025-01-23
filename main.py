@@ -105,7 +105,10 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         await update.message.reply_text("🔍 سأرسل تنبيهات لوحدي عند حدوث تغييرات, انا موجود لراحتك فلوكة 😊.")
     else:
-        await update.message.reply_text("⚠️ فشل في الحصول على بيانات البطارية, يرجى الطلب من عمر تحديث الخدمة.")
+        await update.message.reply_photo(
+        photo="https://i.ibb.co/Sd57f0d/Whats-App-Image-2025-01-20-at-23-04-54-515fe6e6.jpg",  # ضع مسار الصورة أو رابط URL للصورة
+        caption="⚠️ فشل في الحصول على بيانات البطارية, يرجى الطلب من عمر تحديث الخدمة."
+    )
 
 # دالة مراقبة البطارية بشكل دوري
 async def monitor_battery(context: ContextTypes.DEFAULT_TYPE):
