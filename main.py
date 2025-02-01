@@ -51,15 +51,18 @@ def fetch_battery_data(retries=3, delay=2):
                     active_power_kw = float(next(item['val'] for item in parameters if item['par'] == 'bt_load_active_power_sole'))
                     charging_current = float(next(item['val'] for item in parameters if item['par'] == 'bt_battery_charging_current'))
                     active_power_w = active_power_kw * 1000
-                    charging = grid_voltage > 0.0
-                   if    charging_current == 0:
-                        charging_speed = "لا يوجد كهرباء حالياً"
-                    elif  1 <= charging_current < 30:
-                        charging_speed = "الشحن طبيعي"
-                    elif 30 <= charging_current < 60:
-                        charging_speed = "الشحن سريع"
-                    else:
-                        charging_speed = "الشحن سريع جداً"
+    # تحديد حالة الشحن بناءً على فولت الكهرباء
+    charging = grid_voltage > 0.0
+    
+    # تحديد سرعة الشحن بناءً على تيار الشحن
+    if charging_current == 0:
+        charging_speed = "لا يوجد كهرباء حالياً"
+    elif 1 <= charging_current < 30:
+        charging_speed = "الشحن طبيعي"
+    elif 30 <= charging_current < 60:
+        charging_speed = "الشحن سريع"
+    else:
+        charging_speed = "الشحن سريع جداً"
                     return battery_capacity, grid_voltage, charging, active_power_w, charging_current, charging_speed
                 else:
                     logger.error(f"API returned an error: {data.get('desc')}")
