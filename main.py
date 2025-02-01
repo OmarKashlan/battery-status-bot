@@ -52,12 +52,12 @@ def fetch_battery_data(retries=3, delay=2):
                     charging_current = float(next(item['val'] for item in parameters if item['par'] == 'bt_battery_charging_current'))
                     active_power_w = active_power_kw * 1000
                     charging = grid_voltage > 0.0
-                    if charging_current < 30:
+                   if    charging_current == 0:
+                        charging_speed = "لا يوجد كهرباء حالياً"
+                    elif  1 <= charging_current < 30:
                         charging_speed = "الشحن طبيعي"
                     elif 30 <= charging_current < 60:
                         charging_speed = "الشحن سريع"
-                    elif charging_current == 0:
-                        charging_speed = "لا يوجد كهرباء حالياً"
                     else:
                         charging_speed = "الشحن سريع جداً"
                     return battery_capacity, grid_voltage, charging, active_power_w, charging_current, charging_speed
