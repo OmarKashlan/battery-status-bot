@@ -122,7 +122,7 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
                 name=str(chat_id)
             )
 
-            await update.message.reply_text("✅ تم بدء مراقبة البطارية.")
+            await update.message.reply_text("✅ تم بدء مراقبة البطارية. وسأرسل المعلومات كل تغيّر 3%.")
         else:
             await update.message.reply_photo(
                 photo="https://i.ibb.co/Sd57f0d/Whats-App-Image-2025-01-20-at-23-04-54-515fe6e6.jpg",
