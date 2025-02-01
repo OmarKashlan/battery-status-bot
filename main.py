@@ -77,6 +77,15 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
         current_battery, grid_voltage, charging, active_power_w, charging_current, charging_speed = fetch_battery_data()
 
         if current_battery is not None:
+            # تحديد حالة الكهرباء بناءً على تيار الشحن وفولت الكهرباء
+            if charging_current == 0:
+                charging_status = "لا يوجد كهرباء حالياً 🔋"
+            elif grid_voltage == 0:
+                charging_status = "لا يوجد كهرباء 🔋"
+            else:
+                charging_status = "يوجد كهرباء ✔️ ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
+
+            # تقييم استهلاك الطاقة بناءً على وجود الكهرباء
             if charging:
                 power_status = "لا يوجد استهلاك على البطارية 💡"
                 active_power_w = 0
@@ -90,7 +99,6 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
                 else:
                     power_status = "يوجد استهلاك قليل ✅"
 
-            charging_status = "يوجد كهرباء ✔️ ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
             message = (
                 f"🔋 *نسبة شحن البطارية:* {current_battery:.0f}%\n"
                 f"⚡ *فولت الكهرباء:* {grid_voltage:.2f}V\n"
@@ -120,7 +128,7 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
                 name=str(chat_id)
             )
 
-            await update.message.reply_text("✅ تم بدء مراقبة البطارية.")
+            await update.message.reply_text("✅ تم بدء مراقبة البطارية. وسأرسل المعلومات كل تغيّر 3%.")
         else:
             await update.message.reply_photo(
                 photo="https://i.ibb.co/Sd57f0d/Whats-App-Image-2025-01-20-at-23-04-54-515fe6e6.jpg",
@@ -140,8 +148,15 @@ async def monitor_battery(context: ContextTypes.DEFAULT_TYPE):
         current_battery, grid_voltage, charging, active_power_w, charging_current, charging_speed = fetch_battery_data()
 
         if current_battery is not None:
-            charging_status = "يوجد كهرباء 🔌 ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
+            # تحديد حالة الكهرباء بناءً على تيار الشحن وفولت الكهرباء
+            if charging_current == 0:
+                charging_status = "لا يوجد كهرباء حالياً 🔋"
+            elif grid_voltage == 0:
+                charging_status = "لا يوجد كهرباء 🔋"
+            else:
+                charging_status = "يوجد كهرباء 🔌 ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
 
+            # تحذير عند انخفاض الفولت إلى 168V أو أقل
             if grid_voltage <= 168.0 and grid_voltage != previous_voltage:
                 await context.bot.send_message(
                     chat_id=chat_id,
@@ -149,6 +164,7 @@ async def monitor_battery(context: ContextTypes.DEFAULT_TYPE):
                 )
                 previous_voltage = grid_voltage
 
+            # تنبيه عند أي تغيير بنسبة 3%
             if abs(current_battery - previous_battery) >= 3:
                 change = "زاد" if current_battery > previous_battery else "انخفض"
                 await context.bot.send_message(
@@ -157,11 +173,13 @@ async def monitor_battery(context: ContextTypes.DEFAULT_TYPE):
                 )
                 previous_battery = current_battery
 
+            # تنبيه إذا تغيرت حالة الشحن
             if charging != previous_charging:
                 status = "⚡ عادت الكهرباء! الشحن مستمر." if charging else "⚠️ انقطعت الكهرباء! الشحن متوقف."
                 await context.bot.send_message(chat_id=chat_id, text=status)
                 previous_charging = charging
 
+            # تنبيه إذا تغير تيار الشحن بشكل كبير
             if abs(charging_current - previous_charging_current) >= 10:
                 await context.bot.send_message(
                     chat_id=chat_id,
@@ -169,6 +187,7 @@ async def monitor_battery(context: ContextTypes.DEFAULT_TYPE):
                 )
                 previous_charging_current = charging_current
 
+            # تنبيه إذا تغيرت سرعة الشحن
             if charging_speed != previous_charging_speed:
                 await context.bot.send_message(
                     chat_id=chat_id,
