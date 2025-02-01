@@ -9,7 +9,7 @@ from functools import lru_cache
 import time
 
 # إعدادات البوت
-TOKEN = os.getenv("7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M")  # استخدم متغيرات البيئة
+TOKEN = "7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M"  # التوكن مباشرة
 API_URL = "https://web1.shinemonitor.com/public/?sign=ec9295a4d4f204a390f8e9d25e25b6d63af6b54f&salt=1738393944534&token=29645c3615e7b967bd874492186e69e1c96a103cc9e852ec97635a699e88424b&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
 
 # إعداد السجلات (Logging)
