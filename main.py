@@ -46,23 +46,29 @@ def fetch_battery_data(retries=3, delay=2):
                 data = response.json()
                 if data.get("err") == 0:
                     parameters = data['dat']['parameter']
+                    
+                    # استخراج القيم المطلوبة
                     battery_capacity = float(next(item['val'] for item in parameters if item['par'] == 'bt_battery_capacity'))
                     grid_voltage = float(next(item['val'] for item in parameters if item['par'] == 'bt_grid_voltage'))
                     active_power_kw = float(next(item['val'] for item in parameters if item['par'] == 'bt_load_active_power_sole'))
                     charging_current = float(next(item['val'] for item in parameters if item['par'] == 'bt_battery_charging_current'))
+                    
+                    # تحويل الطاقة من kW إلى W
                     active_power_w = active_power_kw * 1000
-    # تحديد حالة الشحن بناءً على فولت الكهرباء
-    charging = grid_voltage > 0.0
-    
-    # تحديد سرعة الشحن بناءً على تيار الشحن
-    if charging_current == 0:
-        charging_speed = "لا يوجد كهرباء حالياً"
-    elif 1 <= charging_current < 30:
-        charging_speed = "الشحن طبيعي"
-    elif 30 <= charging_current < 60:
-        charging_speed = "الشحن سريع"
-    else:
-        charging_speed = "الشحن سريع جداً"
+                    
+                    # تحديد حالة الشحن بناءً على فولت الكهرباء
+                    charging = grid_voltage > 0.0
+                    
+                    # تحديد سرعة الشحن بناءً على تيار الشحن
+                    if charging_current == 0:
+                        charging_speed = "لا يوجد كهرباء حالياً"
+                    elif 1 <= charging_current < 30:
+                        charging_speed = "الشحن طبيعي"
+                    elif 30 <= charging_current < 60:
+                        charging_speed = "الشحن سريع"
+                    else:
+                        charging_speed = "الشحن سريع جداً"
+                    
                     return battery_capacity, grid_voltage, charging, active_power_w, charging_current, charging_speed
                 else:
                     logger.error(f"API returned an error: {data.get('desc')}")
@@ -82,6 +88,15 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
         current_battery, grid_voltage, charging, active_power_w, charging_current, charging_speed = fetch_battery_data()
 
         if current_battery is not None:
+            # تحديد حالة الكهرباء بناءً على تيار الشحن وفولت الكهرباء
+            if charging_current == 0:
+                charging_status = "لا يوجد كهرباء حالياً 🔋"
+            elif grid_voltage == 0:
+                charging_status = "لا يوجد كهرباء 🔋"
+            else:
+                charging_status = "يوجد كهرباء ✔️ ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
+
+            # تقييم استهلاك الطاقة بناءً على وجود الكهرباء
             if charging:
                 power_status = "لا يوجد استهلاك على البطارية 💡"
                 active_power_w = 0
@@ -95,7 +110,6 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
                 else:
                     power_status = "يوجد استهلاك قليل ✅"
 
-            charging_status = "يوجد كهرباء ✔️ ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
             message = (
                 f"🔋 *نسبة شحن البطارية:* {current_battery:.0f}%\n"
                 f"⚡ *فولت الكهرباء:* {grid_voltage:.2f}V\n"
