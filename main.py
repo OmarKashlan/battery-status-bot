@@ -133,17 +133,18 @@ async def monitor_battery(context: ContextTypes.DEFAULT_TYPE):
     try:
         current_battery, grid_voltage, charging, active_power_w, charging_current, charging_speed = fetch_battery_data()
 
- if current_battery is not None:
-            # تحقق من الوقت منذ آخر رسالة تم إرسالها
-            current_time = time.time()
-            if last_sent_time is None or current_time - last_sent_time > 5:  # تأخير 10 ثوانٍ بين الرسائل
-                if abs(current_battery - previous_battery) >= 3:
-                    change = "زاد" if current_battery > previous_battery else "انخفض"
-                    await context.bot.send_message(chat_id=chat_id, text=f"⚠️ تنبيه: {change} شحن البطارية إلى {current_battery:.0f}%!")
-                    previous_battery = current_battery
-                    last_sent_time = current_time  # تحديث الوقت الأخير لإرسال الرسالة
-    except Exception as e:
-        logger.error(f"Error in monitor_battery: {e}")
+if current_battery is not None:
+    # تحقق من الوقت منذ آخر رسالة تم إرسالها
+    current_time = time.time()
+    if last_sent_time is None or current_time - last_sent_time > 5:  # تأخير 10 ثوانٍ بين الرسائل
+        if abs(current_battery - previous_battery) >= 3:
+            change = "زاد" if current_battery > previous_battery else "انخفض"
+            await context.bot.send_message(chat_id=chat_id, text=f"⚠️ تنبيه: {change} شحن البطارية إلى {current_battery:.0f}%!")
+            previous_battery = current_battery
+            last_sent_time = current_time  # تحديث الوقت الأخير لإرسال الرسالة
+except Exception as e:
+    logger.error(f"Error in monitor_battery: {e}")
+
 
 async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
