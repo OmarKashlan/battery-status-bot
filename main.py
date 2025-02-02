@@ -142,8 +142,8 @@ if current_battery is not None:
             await context.bot.send_message(chat_id=chat_id, text=f"⚠️ تنبيه: {change} شحن البطارية إلى {current_battery:.0f}%!")
             previous_battery = current_battery
             last_sent_time = current_time  # تحديث الوقت الأخير لإرسال الرسالة
-except Exception as e:
-    logger.error(f"Error in monitor_battery: {e}")
+    except Exception as e:
+        logger.error(f"Error in monitor_battery: {e}")
 
 
 async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
