@@ -33,13 +33,16 @@ def home():
     return "The bot is running!"
 
 def run_flask():
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
+    try:
+        app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)), use_reloader=False)  # تعطيل use_reloader لتجنب مشاكل الـ threading
+    except Exception as e:
+        logger.error(f"Error running Flask server: {e}")
 
 # جلب بيانات البطارية من الـ API
 def fetch_battery_data(retries=3, delay=2):
     for attempt in range(retries):
         try:
-            response = requests.get(API_URL)
+            response = requests.get(API_URL, timeout=10)  # تعيين حد زمني للطلب (10 ثوانٍ)
             if response.status_code == 200:
                 data = response.json()
                 if data.get("err") == 0:
@@ -70,6 +73,9 @@ def fetch_battery_data(retries=3, delay=2):
         except Exception as e:
             logger.error(f"Attempt {attempt + 1} failed: {e}")
             time.sleep(delay)
+    
+    # فشل في كل المحاولات
+    logger.error("Failed to fetch battery data after multiple attempts.")
     return None, None, None, None, None, None
 
 async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -115,6 +121,7 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
                 name=str(chat_id)
             )
         else:
+            logger.error("Failed to fetch battery data.")
             await update.message.reply_photo(
                 photo="https://i.ibb.co/Sd57f0d/Whats-App-Image-2025-01-20-at-23-04-54-515fe6e6.jpg",
                 caption="⚠️ فشل في الحصول على بيانات البطارية, يرجى الطلب من عمر تحديث الخدمة."
@@ -124,6 +131,7 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.")
 
 last_sent_time = None
+message_delay = 10  # تعيين تأخير 10 ثوانٍ بين الرسائل
 
 async def monitor_battery(context: ContextTypes.DEFAULT_TYPE):
     global previous_battery, previous_voltage, previous_charging, previous_power, previous_charging_current, previous_charging_speed, last_sent_time
@@ -136,7 +144,7 @@ async def monitor_battery(context: ContextTypes.DEFAULT_TYPE):
         if current_battery is not None:
             # تحقق من الوقت منذ آخر رسالة تم إرسالها
             current_time = time.time()
-            if last_sent_time is None or current_time - last_sent_time > 5:  # تأخير 10 ثوانٍ بين الرسائل
+            if last_sent_time is None or current_time - last_sent_time > message_delay:
                 if abs(current_battery - previous_battery) >= 3:
                     change = "زاد" if current_battery > previous_battery else "انخفض"
                     await context.bot.send_message(chat_id=chat_id, text=f"⚠️ تنبيه: {change} شحن البطارية إلى {current_battery:.0f}%!")
