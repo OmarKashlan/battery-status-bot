@@ -1,3 +1,6 @@
+# ============================================
+# 1. إعداد السجلات
+# ============================================
 import os
 import requests
 from telegram import Update
@@ -13,9 +16,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# إعدادات البوت
+# ============================================
+# 2. إعدادات البوت و API
+# ============================================
 TOKEN = "7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M"  # التوكن مباشرة
-API_URL = "https://web1.shinemonitor.com/public/?sign=ec9295a4d4f204a390f8e9d25e25b6d63af6b54f&salt=1738393944534&token=29645c3615e7b967bd874492186e69e1c96a103cc9e852ec97635a699e88424b&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
+API_URL = "https://web1.shinemonitor.com/public/?sign=b3729511f4f2938474571eb8b9b8a3ad0cbde922&salt=1738677949971&token=51b1ed7a085b7bbbcc185a7a7884ae79555058e4aefd91247f0864059eb95485&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
 
 # المتغيرات لتخزين القيم السابقة
 previous_battery = None
@@ -25,6 +30,9 @@ previous_power = None
 previous_charging_current = None
 previous_charging_speed = None
 
+# ============================================
+# 3. إعداد خادم Flask
+# ============================================
 # خادم Flask لضمان استمرارية التشغيل
 app = Flask(__name__)
 
@@ -34,11 +42,13 @@ def home():
 
 def run_flask():
     try:
-        app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)), use_reloader=False)  # تعطيل use_reloader لتجنب مشاكل الـ threading
+        app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)), use_reloader=False)
     except Exception as e:
         logger.error(f"Error running Flask server: {e}")
 
-# جلب بيانات البطارية من الـ API
+# ============================================
+# 4. جلب بيانات البطارية من الـ API
+# ============================================
 def fetch_battery_data(retries=3, delay=2):
     for attempt in range(retries):
         try:
@@ -78,6 +88,9 @@ def fetch_battery_data(retries=3, delay=2):
     logger.error("Failed to fetch battery data after multiple attempts.")
     return None, None, None, None, None, None
 
+# ============================================
+# 5. معالجة طلبات البوت (البطارية والمراقبة)
+# ============================================
 async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global previous_battery, previous_voltage, previous_charging, previous_power, previous_charging_current, previous_charging_speed
     chat_id = update.effective_chat.id
@@ -124,47 +137,49 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
             logger.error("Failed to fetch battery data.")
             await update.message.reply_photo(
                 photo="https://i.ibb.co/Sd57f0d/Whats-App-Image-2025-01-20-at-23-04-54-515fe6e6.jpg",
-                caption="⚠️ فشل في الحصول على بيانات البطارية, يرجى الطلب من عمر تحديث الخدمة."
+                caption="⚠️ فشل في الحصول على بيانات البطارية بسبب انتهاء فترة المعلومات (تعبت من الاخر يعني), فـ يرجى الطلب من عمر تحديث الخدمة."
             )
     except Exception as e:
         logger.error(f"Error in battery_and_monitor: {e}")
-        await update.message.reply_text("حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى.")
+        await update.message.reply_text("حدث خطأ غير متوقع. يرجى اخبار عمر بالمشكلة فوراً.")
 
-last_sent_time = None
-message_delay = 10  # تعيين تأخير 10 ثوانٍ بين الرسائل
+# ============================================
+# 6. مراقبة البطارية باستمرار
+# ============================================
+# بدلاً من last_sent_message, خزّن آخر قيمة للبطارية
+last_sent_battery = None
 
 async def monitor_battery(context: ContextTypes.DEFAULT_TYPE):
-    global previous_battery, previous_voltage, previous_charging, previous_power, previous_charging_current, previous_charging_speed, last_sent_time
+    global last_sent_time, last_sent_battery
     job = context.job
     chat_id = job.chat_id
 
     try:
+        # جلب البيانات من الـ API
         current_battery, grid_voltage, charging, active_power_w, charging_current, charging_speed = fetch_battery_data()
 
         if current_battery is not None:
-            # تحقق من الوقت منذ آخر رسالة تم إرسالها
             current_time = time.time()
+
             if last_sent_time is None or current_time - last_sent_time > message_delay:
-                if abs(current_battery - previous_battery) >= 3:
-                    change = "زاد" if current_battery > previous_battery else "انخفض"
-                    await context.bot.send_message(chat_id=chat_id, text=f"⚠️ تنبيه: {change} شحن البطارية إلى {current_battery:.0f}%!")
-                    previous_battery = current_battery
-                    last_sent_time = current_time  # تحديث الوقت الأخير لإرسال الرسالة
+                if abs(current_battery - last_sent_battery) >= 3:
+                    change = "زاد" if current_battery > last_sent_battery else "انخفض"
+                    message = f"⚠️ تنبيه: {change} شحن البطارية إلى {current_battery:.0f}%!"
+                    
+                    # إرسال الرسالة
+                    await context.bot.send_message(chat_id=chat_id, text=message)
+                    
+                    # تحديث القيم
+                    last_sent_battery = current_battery
+                    last_sent_time = current_time
     except Exception as e:
         logger.error(f"Error in monitor_battery: {e}")
-
-async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    job_removed = context.job_queue.get_jobs_by_name(str(chat_id))
-    for job in job_removed:
-        job.schedule_removal()
-
-    await update.message.reply_text("⏹️ تم إيقاف مراقبة البطارية.")
-
+# ============================================
+# 7. تشغيل البوت
+# ============================================
 def main():
     tg_app = ApplicationBuilder().token(TOKEN).build()
     tg_app.add_handler(CommandHandler("battery", battery_and_monitor))
-    tg_app.add_handler(CommandHandler("stop", stop_monitoring))
 
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.start()
