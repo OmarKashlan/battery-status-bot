@@ -65,25 +65,20 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
         # حساب الوقت المتبقي للبراد للعمل بناءً على استهلاك الطاقة
         if current_battery < 70 and ac2_voltage > 0:  # إذا كانت البطارية أقل من 70% والبراد يعمل
             remaining_time_hours = current_battery * 0.8 / (active_power_w / 1000)  # تقدير الوقت المتبقي بالساعة
-            remaining_time_message = f"⏳ الوقت المتبقي للبراد: {remaining_time_hours:.1f} ساعات"
+            remaining_time_minutes = (remaining_time_hours * 60) % 60
+            remaining_time_hours = int(remaining_time_hours)
+            remaining_time_minutes = int(remaining_time_minutes)
+            remaining_time_message = f"البراد يعمل الآن, المتبقي له: {remaining_time_hours} ساعة و {remaining_time_minutes} دقيقة"
         else:
-            remaining_time_message = "✅ البراد يعمل بشكل طبيعي."
+            remaining_time_message = "البراد متوقف الآن لأن البطارية أقل من 70%" if current_battery < 70 else "البراد يعمل لأن هناك كهرباء"
 
         charging_status = "يوجد كهرباء ✔️ ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
-        power_status = (
-            "لا يوجد استهلاك على البطارية 💡" if charging
-            else "يوجد استهلاك كبير 🛑" if active_power_w > 500
-            else "يوجد استهلاك متوسط ⚠️" if active_power_w > 300
-            else "لا يوجد استهلاك مطلقاً" if active_power_w == 0
-            else "يوجد استهلاك قليل ✅"
-        )
 
         message = (
             f"🔋 نسبة شحن البطارية: {current_battery:.0f}%\n"
             f"⚡ فولت الكهرباء: {grid_voltage:.2f}V\n"
             f"🔌 حالة الشحن: {charging_status}\n"
-            f"⚙️ استهلاك البطارية: {active_power_w:.0f}W - {power_status}\n"
-            f"🔌 فولت البراد: {ac2_voltage:.2f}V\n"
+            f"⚙️ استهلاك البطارية: {active_power_w:.0f}W\n"
             f"{remaining_time_message}"
         )
         await update.message.reply_text(message)
@@ -109,7 +104,7 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
             name=str(chat_id)
         )
 
-        await update.message.reply_text("🔍 سأرسل تنبيهات لوحدي عند حدوث تغييرات, انا موجود لراحتك فلوكة 😊.")
+        await update.message.reply_text("🔍 سأرسل تنبيهات لوحدي عند حدوث تغييرات.")
     else:
         await update.message.reply_photo(
         photo="https://i.ibb.co/Sd57f0d/Whats-App-Image-2025-01-20-at-23-04-54-515fe6e6.jpg",  # ضع مسار الصورة أو رابط URL للصورة
