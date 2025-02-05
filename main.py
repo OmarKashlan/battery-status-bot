@@ -62,15 +62,15 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
     current_battery, grid_voltage, charging, active_power_w, ac2_voltage = fetch_battery_data()
 
     if current_battery is not None:
-        # حالة البراد بناءً على البطارية والشحن
-        if current_battery > 70:  # البطارية أكثر من 70%، البراد يعمل بغض النظر عن الكهرباء
+        # حساب الوقت المتبقي حتى تصبح البطارية 70%
+        if current_battery > 70:
             remaining_time_message = "البراد يعمل الآن"
-        elif current_battery < 70 and ac2_voltage > 0 and not charging:  # إذا كانت البطارية أقل من 70% والبراد يعمل
-            remaining_time_hours = current_battery * 0.8 / (active_power_w / 1000)  # تقدير الوقت المتبقي بالساعة
-            remaining_time_minutes = (remaining_time_hours * 60) % 60
-            remaining_time_hours = int(remaining_time_hours)
-            remaining_time_minutes = int(remaining_time_minutes)
-            remaining_time_message = f"البراد يعمل الآن, المتبقي له: {remaining_time_hours} ساعة و {remaining_time_minutes} دقيقة"
+        elif current_battery <= 70 and ac2_voltage > 0 and not charging:
+            # حساب الوقت المتبقي بالساعة لتصل البطارية إلى 70%
+            time_to_70 = (current_battery - 70) * 0.8 / (active_power_w / 1000)  # تقدير الوقت بالساعة
+            time_to_70_hours = int(time_to_70)
+            time_to_70_minutes = int((time_to_70 * 60) % 60)
+            remaining_time_message = f"البراد يعمل الآن (الوقت المتبقي: {time_to_70_hours} ساعة و {time_to_70_minutes} دقيقة)"
         elif current_battery < 70:  # البطارية أقل من 70%
             remaining_time_message = "البراد متوقف الآن لأن البطارية أقل من 70%"
         elif charging:  # إذا كان الشحن قيد التشغيل
@@ -89,7 +89,7 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"{grid_voltage_message}\n"
             f"🔌 حالة الشحن: {charging_status}\n"
             f"{active_power_message}\n"
-            f"🧊 وضع البراد :{remaining_time_message}"
+            f"🧊 وضع البراد : {remaining_time_message}"
         )
         await update.message.reply_text(message)
 
@@ -114,7 +114,6 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
             name=str(chat_id)
         )
 
-        await update.message.reply_text("🔍 سأرسل تنبيهات لوحدي عند حدوث تغييرات.")
     else:
         await update.message.reply_photo(
         photo="https://i.ibb.co/Sd57f0d/Whats-App-Image-2025-01-20-at-23-04-54-515fe6e6.jpg",  # ضع مسار الصورة أو رابط URL للصورة
