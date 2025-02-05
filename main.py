@@ -41,7 +41,8 @@ def fetch_battery_data():
             ac2_voltage = float(next(item['val'] for item in parameters if item['par'] == 'bt_ac2_output_voltage'))  # مخرج البراد
             
             # استخراج تيار الشحن (Battery Charging Current)
-            charging_current = float(next(item['val'] for item in parameters if item['par'] == 'bt_battery_charging_current', 0.0))
+            charging_current = float(next((item['val'] for item in parameters if item['par'] == 'bt_battery_charging_current'), 0.0))
+
 
             # تحويل الطاقة إلى W
             active_power_w = active_power_kw * 1000
