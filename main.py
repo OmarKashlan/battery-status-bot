@@ -39,7 +39,8 @@ def fetch_battery_data():
             grid_voltage = float(next(item['val'] for item in parameters if item['par'] == 'bt_grid_voltage'))
             active_power_kw = float(next(item['val'] for item in parameters if item['par'] == 'bt_load_active_power_sole'))
             ac2_voltage = float(next(item['val'] for item in parameters if item['par'] == 'bt_ac2_output_voltage'))  # مخرج البراد
-            charging_current = float(next(item['val'] for item in parameters if item['par'] == 'bt_battery_charging_current', 0.0))  # تيار الشحن
+            charging_current = float(next((item['val'] for item in parameters if item['par'] == 'bt_battery_charging_current'), 0.0))  # تيار الشحن
+
 
             # تحويل الطاقة إلى W
             active_power_w = active_power_kw * 1000
