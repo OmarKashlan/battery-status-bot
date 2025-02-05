@@ -39,10 +39,7 @@ def fetch_battery_data():
             grid_voltage = float(next(item['val'] for item in parameters if item['par'] == 'bt_grid_voltage'))
             active_power_kw = float(next(item['val'] for item in parameters if item['par'] == 'bt_load_active_power_sole'))
             ac2_voltage = float(next(item['val'] for item in parameters if item['par'] == 'bt_ac2_output_voltage'))  # مخرج البراد
-            
-            # استخراج تيار الشحن (Battery Charging Current)
-            charging_current = float(next((item['val'] for item in parameters if item['par'] == 'bt_battery_charging_current'), 0.0))
-
+            charging_current = float(next(item['val'] for item in parameters if item['par'] == 'bt_battery_charging_current', 0.0))  # تيار الشحن
 
             # تحويل الطاقة إلى W
             active_power_w = active_power_kw * 1000
@@ -66,15 +63,16 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
     current_battery, grid_voltage, charging, active_power_w, ac2_voltage, charging_current = fetch_battery_data()
 
     if current_battery is not None:
-        # حساب الوقت المتبقي حتى تصبح البطارية 70%
-        if current_battery > 70:
+        # حساب الوقت المتبقي بناءً على استهلاك البراد
+        if current_battery > 70:  # البطارية أكثر من 70%، البراد يعمل بغض النظر عن الكهرباء
             remaining_time_message = "البراد يعمل الآن"
-        elif current_battery <= 70 and ac2_voltage > 0 and not charging:
-            # حساب الوقت المتبقي بالساعة لتصل البطارية إلى 70%
-            time_to_70 = (current_battery - 70) * 0.8 / (active_power_w / 1000)  # تقدير الوقت بالساعة
-            time_to_70_hours = int(time_to_70)
-            time_to_70_minutes = int((time_to_70 * 60) % 60)
-            remaining_time_message = f"البراد يعمل الآن (الوقت المتبقي: {time_to_70_hours} ساعة و {time_to_70_minutes} دقيقة)"
+        elif current_battery < 70 and ac2_voltage > 0 and not charging:  # إذا كانت البطارية أقل من 70% والبراد يعمل
+            # تقدير الوقت المتبقي بالساعة
+            remaining_time_hours = (current_battery * 0.8 * 1000) / active_power_w  # حساب الوقت المتبقي باستخدام السعة
+            remaining_time_minutes = (remaining_time_hours * 60) % 60
+            remaining_time_hours = int(remaining_time_hours)
+            remaining_time_minutes = int(remaining_time_minutes)
+            remaining_time_message = f"البراد يعمل الآن, المتبقي له: {remaining_time_hours} ساعة و {remaining_time_minutes} دقيقة"
         elif current_battery < 70:  # البطارية أقل من 70%
             remaining_time_message = "البراد متوقف الآن لأن البطارية أقل من 70%"
         elif charging:  # إذا كان الشحن قيد التشغيل
@@ -82,10 +80,13 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             remaining_time_message = "البراد غير قادر على العمل بسبب نقص الشحن"
 
-        # حالة الشحن
         charging_status = "يوجد كهرباء ✔️ ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
+        
+        # تعديل رسائل الفولت والاستهلاك
+        grid_voltage_message = f"⚡ فولت الكهرباء: {grid_voltage:.2f}V" if grid_voltage > 0 else "⚡ فولت الكهرباء: 0.00V, لا يوجد كهرباء حالياً"
+        active_power_message = f"⚙️ استهلاك البطارية: {active_power_w:.0f}W" if active_power_w > 0 else "⚙️ استهلاك البطارية: 0W, لا يوجد استهلاك حالياً"
 
-        # حساب سرعة الشحن
+        # حساب حالة الشحن بناءً على تيار الشحن
         if charging_current == 0:
             charging_speed = "لا يوجد كهرباء حالياً"
         elif 1 <= charging_current < 30:
@@ -95,18 +96,13 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             charging_speed = "الشحن سريع جداً"
 
-        # تعديل رسائل الفولت والاستهلاك
-        grid_voltage_message = f"⚡ فولت الكهرباء: {grid_voltage:.2f}V" if grid_voltage > 0 else "⚡ فولت الكهرباء: 0.00V, لا يوجد كهرباء حالياً"
-        active_power_message = f"⚙️ استهلاك البطارية: {active_power_w:.0f}W" if active_power_w > 0 else "⚙️ استهلاك البطارية: 0W, لا يوجد استهلاك حالياً"
-        charging_current_message = f"🔋 تيار الشحن: {charging_current:.2f}A ({charging_speed})" if charging_current > 0 else "🔋 تيار الشحن: 0A, لا يوجد شحن حالياً"
-
         message = (
             f"🔋 نسبة شحن البطارية: {current_battery:.0f}%\n"
             f"{grid_voltage_message}\n"
             f"🔌 حالة الشحن: {charging_status}\n"
-            f"{active_power_message}\n"
-            f"{charging_current_message}\n"
-            f"🧊 وضع البراد : {remaining_time_message}"
+            f"⚙️ استهلاك البطارية: {active_power_w:.0f}W\n"
+            f"🔋 تيار الشحن: {charging_current:.2f}A, {charging_speed}\n"
+            f"🧊 وضع البراد :{remaining_time_message}"
         )
         await update.message.reply_text(message)
 
