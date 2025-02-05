@@ -62,15 +62,19 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
     current_battery, grid_voltage, charging, active_power_w, ac2_voltage = fetch_battery_data()
 
     if current_battery is not None:
-        # حساب الوقت المتبقي للبراد للعمل بناءً على استهلاك الطاقة
-        if current_battery < 70 and ac2_voltage > 0:  # إذا كانت البطارية أقل من 70% والبراد يعمل
+        # حالة البراد بناءً على البطارية والشحن
+        if current_battery < 70 and ac2_voltage > 0 and not charging:  # إذا كانت البطارية أقل من 70% والبراد يعمل
             remaining_time_hours = current_battery * 0.8 / (active_power_w / 1000)  # تقدير الوقت المتبقي بالساعة
             remaining_time_minutes = (remaining_time_hours * 60) % 60
             remaining_time_hours = int(remaining_time_hours)
             remaining_time_minutes = int(remaining_time_minutes)
             remaining_time_message = f"البراد يعمل الآن, المتبقي له: {remaining_time_hours} ساعة و {remaining_time_minutes} دقيقة"
+        elif current_battery < 70 and not charging:  # البطارية أقل من 70% ولا يوجد شحن
+            remaining_time_message = "البراد متوقف الآن لأن البطارية أقل من 70%"
+        elif charging:  # إذا كان الشحن قيد التشغيل
+            remaining_time_message = "البراد يعمل لأنه يوجد كهرباء"
         else:
-            remaining_time_message = "البراد متوقف الآن لأن البطارية أقل من 70%" if current_battery < 70 else "البراد يعمل لأن هناك كهرباء"
+            remaining_time_message = "البراد غير قادر على العمل بسبب نقص الشحن"
 
         charging_status = "يوجد كهرباء ✔️ ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
 
@@ -157,18 +161,16 @@ async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # إعداد البوت
 def main():
-    tg_app = ApplicationBuilder().token(TOKEN).build()
-    job_queue = tg_app.job_queue
-    job_queue.start()
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("battery", battery_and_monitor))
+    app.add_handler(CommandHandler("stop", stop_monitoring))
 
-    tg_app.add_handler(CommandHandler("battery", battery_and_monitor))
-    tg_app.add_handler(CommandHandler("stop", stop_monitoring))
+    job_queue = app.job_queue
 
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.start()
+    # بدء تشغيل Flask في خيط منفصل
+    threading.Thread(target=run_flask).start()
 
-    print("✅ البوت يعمل الآن...")
-    tg_app.run_polling()
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
