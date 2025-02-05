@@ -63,7 +63,9 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if current_battery is not None:
         # حالة البراد بناءً على البطارية والشحن
-        if current_battery < 70 and ac2_voltage > 0 and not charging:  # إذا كانت البطارية أقل من 70% والبراد يعمل
+        if current_battery > 70:  # البطارية أكثر من 70%، البراد يعمل بغض النظر عن الكهرباء
+            remaining_time_message = "البراد يعمل الآن"
+        elif current_battery < 70 and ac2_voltage > 0 and not charging:  # إذا كانت البطارية أقل من 70% والبراد يعمل
             remaining_time_hours = current_battery * 0.8 / (active_power_w / 1000)  # تقدير الوقت المتبقي بالساعة
             remaining_time_minutes = (remaining_time_hours * 60) % 60
             remaining_time_hours = int(remaining_time_hours)
@@ -77,12 +79,16 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
             remaining_time_message = "البراد غير قادر على العمل بسبب نقص الشحن"
 
         charging_status = "يوجد كهرباء ✔️ ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
+        
+        # تعديل رسائل الفولت والاستهلاك
+        grid_voltage_message = f"⚡ فولت الكهرباء: {grid_voltage:.2f}V" if grid_voltage > 0 else "⚡ فولت الكهرباء: 0.00V, لا يوجد كهرباء حالياً"
+        active_power_message = f"⚙️ استهلاك البطارية: {active_power_w:.0f}W" if active_power_w > 0 else "⚙️ استهلاك البطارية: 0W, لا يوجد استهلاك حالياً"
 
         message = (
             f"🔋 نسبة شحن البطارية: {current_battery:.0f}%\n"
-            f"⚡ فولت الكهرباء: {grid_voltage:.2f}V\n"
+            f"{grid_voltage_message}\n"
             f"🔌 حالة الشحن: {charging_status}\n"
-            f"⚙️ استهلاك البطارية: {active_power_w:.0f}W\n"
+            f"{active_power_message}\n"
             f"🧊 وضع البراد :{remaining_time_message}"
         )
         await update.message.reply_text(message)
@@ -149,6 +155,7 @@ async def monitor_battery(context: ContextTypes.DEFAULT_TYPE):
             status = "⚡ عادت الكهرباء! الشحن مستمر." if charging else "⚠️ انقطعت الكهرباء! الشحن متوقف."
             await context.bot.send_message(chat_id=chat_id, text=status)
             previous_charging = charging
+
 
 # دالة لإيقاف المراقبة
 async def stop_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE):
