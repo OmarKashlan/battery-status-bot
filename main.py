@@ -69,7 +69,7 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
             remaining_time_hours = int(remaining_time_hours)
             remaining_time_minutes = int(remaining_time_minutes)
             remaining_time_message = f"البراد يعمل الآن, المتبقي له: {remaining_time_hours} ساعة و {remaining_time_minutes} دقيقة"
-        elif current_battery < 70 and not charging:  # البطارية أقل من 70% ولا يوجد شحن
+        elif current_battery < 70:  # البطارية أقل من 70%
             remaining_time_message = "البراد متوقف الآن لأن البطارية أقل من 70%"
         elif charging:  # إذا كان الشحن قيد التشغيل
             remaining_time_message = "البراد يعمل لأنه يوجد كهرباء"
@@ -83,7 +83,7 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"⚡ فولت الكهرباء: {grid_voltage:.2f}V\n"
             f"🔌 حالة الشحن: {charging_status}\n"
             f"⚙️ استهلاك البطارية: {active_power_w:.0f}W\n"
-            f"{remaining_time_message}"
+            f"🧊 وضع البراد :{remaining_time_message}"
         )
         await update.message.reply_text(message)
 
