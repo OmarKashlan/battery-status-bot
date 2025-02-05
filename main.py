@@ -39,6 +39,9 @@ def fetch_battery_data():
             grid_voltage = float(next(item['val'] for item in parameters if item['par'] == 'bt_grid_voltage'))
             active_power_kw = float(next(item['val'] for item in parameters if item['par'] == 'bt_load_active_power_sole'))
             ac2_voltage = float(next(item['val'] for item in parameters if item['par'] == 'bt_ac2_output_voltage'))  # مخرج البراد
+            
+            # استخراج تيار الشحن (Battery Charging Current)
+            charging_current = float(next(item['val'] for item in parameters if item['par'] == 'bt_battery_charging_current', 0.0))
 
             # تحويل الطاقة إلى W
             active_power_w = active_power_kw * 1000
@@ -46,12 +49,12 @@ def fetch_battery_data():
             # تحديد حالة الشحن
             charging = grid_voltage > 0.0
 
-            return battery_capacity, grid_voltage, charging, active_power_w, ac2_voltage
+            return battery_capacity, grid_voltage, charging, active_power_w, ac2_voltage, charging_current
         else:
-            return None, None, None, None, None
+            return None, None, None, None, None, None
     except Exception as e:
         print(f"Error fetching data: {e}")
-        return None, None, None, None, None
+        return None, None, None, None, None, None
 
 # دالة /battery لعرض البيانات ومراقبة الشحن
 async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -59,7 +62,7 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
     chat_id = update.effective_chat.id
 
     # جلب البيانات الحالية
-    current_battery, grid_voltage, charging, active_power_w, ac2_voltage = fetch_battery_data()
+    current_battery, grid_voltage, charging, active_power_w, ac2_voltage, charging_current = fetch_battery_data()
 
     if current_battery is not None:
         # حساب الوقت المتبقي حتى تصبح البطارية 70%
@@ -78,17 +81,30 @@ async def battery_and_monitor(update: Update, context: ContextTypes.DEFAULT_TYPE
         else:
             remaining_time_message = "البراد غير قادر على العمل بسبب نقص الشحن"
 
+        # حالة الشحن
         charging_status = "يوجد كهرباء ✔️ ويتم الشحن حالياً." if charging else "لا يوجد كهرباء 🔋 والشحن متوقف."
-        
+
+        # حساب سرعة الشحن
+        if charging_current == 0:
+            charging_speed = "لا يوجد كهرباء حالياً"
+        elif 1 <= charging_current < 30:
+            charging_speed = "الشحن طبيعي"
+        elif 30 <= charging_current < 60:
+            charging_speed = "الشحن سريع"
+        else:
+            charging_speed = "الشحن سريع جداً"
+
         # تعديل رسائل الفولت والاستهلاك
         grid_voltage_message = f"⚡ فولت الكهرباء: {grid_voltage:.2f}V" if grid_voltage > 0 else "⚡ فولت الكهرباء: 0.00V, لا يوجد كهرباء حالياً"
         active_power_message = f"⚙️ استهلاك البطارية: {active_power_w:.0f}W" if active_power_w > 0 else "⚙️ استهلاك البطارية: 0W, لا يوجد استهلاك حالياً"
+        charging_current_message = f"🔋 تيار الشحن: {charging_current:.2f}A ({charging_speed})" if charging_current > 0 else "🔋 تيار الشحن: 0A, لا يوجد شحن حالياً"
 
         message = (
             f"🔋 نسبة شحن البطارية: {current_battery:.0f}%\n"
             f"{grid_voltage_message}\n"
             f"🔌 حالة الشحن: {charging_status}\n"
             f"{active_power_message}\n"
+            f"{charging_current_message}\n"
             f"🧊 وضع البراد : {remaining_time_message}"
         )
         await update.message.reply_text(message)
