@@ -7,7 +7,7 @@ import threading
 
 # ============================ إعدادات البوت الأساسية ============================ #
 TOKEN = "7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M"
-API_URL = "https://web1.shinemonitor.com/public/?sign=e35fa2a0e99e6d7d3b4e8656cb385335a19769e7&salt=1738750708040&token=4ac3905ae2ff1552a9fb7cdf3b13c1a1a2c0211dd7549860284355099d3a17f3&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
+API_URL = "https://web1.shinemonitor.com/public/?sign=ae166641133ef9d2b6fffadce23956da3e46c2f8&salt=1739098785282&token=293be34608c4244a44d603636135ea736e91ee030ebd3169579a1c91452deea0&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
 
 # ============================ إعدادات المراقبة ============================ #
 BATTERY_CHANGE_THRESHOLD = 3
@@ -95,6 +95,9 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
     if not new_data:
         return
     
+    if new_data['power_usage'] > POWER_THRESHOLDS[1]:
+        await send_power_alert(context, new_data['power_usage'])
+    
     if old_data['charging'] != new_data['charging']:
         await send_electricity_alert(context, new_data['charging'])
     
@@ -113,6 +116,10 @@ async def send_battery_alert(context: ContextTypes.DEFAULT_TYPE, old_value: floa
         chat_id=context.job.chat_id,
         text=f"{arrow}\nالشحن: {old_value:.0f}% → {new_value:.0f}%"
     )
+
+async def send_power_alert(context: ContextTypes.DEFAULT_TYPE, power_usage: float):
+    message = f"⚠️ تحذير! استهلاك الطاقة كبير جدًا: {power_usage:.0f}W"
+    await context.bot.send_message(chat_id=context.job.chat_id, text=message)
 
 # ============================ دوال مساعدة ============================ #
 def get_charging_status(current: float) -> str:
