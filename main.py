@@ -91,20 +91,39 @@ def start_auto_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, in
 async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
     old_data = context.job.data
     new_data = get_system_data()
-    
+
     if not new_data:
         return
     
+    # تحقق من إذا كان استهلاك الطاقة قد تجاوز العتبة و إذا لم يتم إرسال التحذير بعد
     if new_data['power_usage'] > POWER_THRESHOLDS[1]:
-        await send_power_alert(context, new_data['power_usage'])
-    
+        if 'power_alert_sent' not in context.job.data or not context.job.data['power_alert_sent']:
+            await send_power_alert(context, new_data['power_usage'])
+            context.job.data['power_alert_sent'] = True  # تم إرسال تحذير الاستهلاك الكبير
+
+    # تحقق من إذا كان استهلاك الطاقة قد انخفض تحت العتبة بعد أن كان كبيرًا
+    elif new_data['power_usage'] <= POWER_THRESHOLDS[1] and old_data['power_usage'] > POWER_THRESHOLDS[1]:
+        await send_power_reduced_alert(context, new_data['power_usage'])
+        context.job.data['power_alert_sent'] = False  # إعادة تعيين التحذير إذا انخفض الاستهلاك
+
+    # إذا تغيرت حالة الشحن، أرسل تحذير الكهرباء
     if old_data['charging'] != new_data['charging']:
         await send_electricity_alert(context, new_data['charging'])
     
+    # إذا تغيرت نسبة البطارية بشكل كبير، أرسل تحذير البطارية
     if abs(new_data['battery'] - old_data['battery']) >= BATTERY_CHANGE_THRESHOLD:
         await send_battery_alert(context, old_data['battery'], new_data['battery'])
-    
+
     context.job.data = new_data
+
+# ============================ دوال مساعدة ============================ #
+async def send_power_alert(context: ContextTypes.DEFAULT_TYPE, power_usage: float):
+    message = f"⚠️ تحذير! استهلاك الطاقة كبير جدًا: {power_usage:.0f}W"
+    await context.bot.send_message(chat_id=context.job.chat_id, text=message)
+
+async def send_power_reduced_alert(context: ContextTypes.DEFAULT_TYPE, power_usage: float):
+    message = f"👍 تم خفض استهلاك الطاقة إلى {power_usage:.0f}W."
+    await context.bot.send_message(chat_id=context.job.chat_id, text=message)
 
 async def send_electricity_alert(context: ContextTypes.DEFAULT_TYPE, is_charging: bool):
     message = "⚡ عادت الكهرباء! الشحن جارٍ الآن." if is_charging else "⚠️ انقطعت الكهرباء! يتم التشغيل على البطارية."
@@ -117,11 +136,7 @@ async def send_battery_alert(context: ContextTypes.DEFAULT_TYPE, old_value: floa
         text=f"{arrow}\nالشحن: {old_value:.0f}% → {new_value:.0f}%"
     )
 
-async def send_power_alert(context: ContextTypes.DEFAULT_TYPE, power_usage: float):
-    message = f"⚠️ تحذير! استهلاك الطاقة كبير جدًا: {power_usage:.0f}W"
-    await context.bot.send_message(chat_id=context.job.chat_id, text=message)
-
-# ============================ دوال مساعدة ============================ #
+# ============================ دوال مساعدة أخرى ============================ #
 def get_charging_status(current: float) -> str:
     if current >= 60:
         return f"{current:.1f}A (الشحن سريع جداً 🔴)"
