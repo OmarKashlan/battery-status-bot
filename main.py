@@ -4,6 +4,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, JobQueue
 from flask import Flask
 import threading
+import time
 
 # ============================ إعدادات البوت الأساسية ============================ #
 TOKEN = "7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M"
@@ -74,6 +75,8 @@ async def send_status_message(update: Update, data: dict):
     await update.message.reply_text(message)
 
 # ============================ نظام المراقبة التلقائية ============================ #
+last_power_usage = None  # تعريف المتغير لتخزين حالة إرسال التحذير
+
 def start_auto_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, initial_data: dict):
     chat_id = update.effective_chat.id
     for job in context.job_queue.get_jobs_by_name(str(chat_id)):
@@ -89,22 +92,27 @@ def start_auto_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, in
     )
 
 async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
+    global last_power_usage
+
     old_data = context.job.data
     new_data = get_system_data()
 
     if not new_data:
         return
     
-    # تحقق من إذا كان استهلاك الطاقة قد تجاوز العتبة و إذا لم يتم إرسال التحذير بعد
+    current_time = time.time()  # الوقت الحالي
+
+    # تحقق من إذا كان استهلاك الطاقة قد تجاوز العتبة
     if new_data['power_usage'] > POWER_THRESHOLDS[1]:
-        if 'power_alert_sent' not in context.job.data or not context.job.data['power_alert_sent']:
+        # تحقق من أن الاستهلاك الجديد أكبر من الاستهلاك السابق أو إذا كان الاستهلاك السابق فارغًا
+        if last_power_usage is None or new_data['power_usage'] != last_power_usage:
             await send_power_alert(context, new_data['power_usage'])
-            context.job.data['power_alert_sent'] = True  # تم إرسال تحذير الاستهلاك الكبير
+            last_power_usage = new_data['power_usage']  # تحديث الاستهلاك السابق
 
     # تحقق من إذا كان استهلاك الطاقة قد انخفض تحت العتبة بعد أن كان كبيرًا
     elif new_data['power_usage'] <= POWER_THRESHOLDS[1] and old_data['power_usage'] > POWER_THRESHOLDS[1]:
         await send_power_reduced_alert(context, new_data['power_usage'])
-        context.job.data['power_alert_sent'] = False  # إعادة تعيين التحذير إذا انخفض الاستهلاك
+        last_power_usage = None  # إعادة تعيين الاستهلاك السابق
 
     # إذا تغيرت حالة الشحن، أرسل تحذير الكهرباء
     if old_data['charging'] != new_data['charging']:
