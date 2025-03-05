@@ -8,7 +8,7 @@ import time
 
 # ============================ إعدادات البوت الأساسية ============================ #
 TOKEN = "7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M"
-API_URL = "https://web1.shinemonitor.com/public/?sign=9d265a252119d70ef3b1c8000bcdabd914dbdc23&salt=1740480960269&token=fa0f8c3501dbed544cb94cca6f25ce42505463bc2021a024adecff58f0e63dfd&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
+API_URL = "https://web1.shinemonitor.com/public/?sign=52435efaedd6cb967d99330b78474d5b2e6de330&salt=1741206696438&token=c54f10b7766545eca9a62a344ca57e456a826760f6a89f004fb2e29be24fba82&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
 
 # ============================ إعدادات المراقبة ============================ #
 BATTERY_CHANGE_THRESHOLD = 3
@@ -60,7 +60,7 @@ async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def send_error_message(update: Update):
     await update.message.reply_photo(
         photo="https://i.ibb.co/Sd57f0d/Whats-App-Image-2025-01-20-at-23-04-54-515fe6e6.jpg",
-        caption="⚠️ تعذر الحصول على البيانات لانه تعبت وانا عم جبلك البيانات ولله ، الرجاء الطلب من عمورة تحديث الخدمة "
+        caption="⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة "
     )
 
 async def send_status_message(update: Update, data: dict):
