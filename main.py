@@ -8,7 +8,7 @@ import time
 
 # ============================ إعدادات البوت الأساسية ============================ #
 TOKEN = "7715192868:AAF5b5I0mfWBIuVc34AA6U6sEBt2Sb0PC6M"
-API_URL = "https://web1.shinemonitor.com/public/?sign=de1c0a6471135edc083b92719694dd0c47bf8173&salt=1742629685433&token=6312b0eb37af7070a8b85e20322ac6085a6acee4573f42f5d1348ed38f9290c8&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
+API_URL = "https://web1.shinemonitor.com/public/?sign=55ce44ea7e9677098ecc72bdb2edd074635d0a85&salt=1743065645177&token=ddf8b8429341331bc65ab85087d38e2ba1d1d15ac87a0e99b909180d3b8e3249&action=queryDeviceParsEs&source=1&devcode=2451&pn=W0040157841922&devaddr=1&sn=96322407504037&i18n=en_US"
 
 # ============================ إعدادات المراقبة ============================ #
 BATTERY_CHANGE_THRESHOLD = 3
