@@ -9,12 +9,12 @@ import time
 
 # ============================== CONFIGURATION ============================== #
 try:
-    from config import TELEGRAM_TOKEN, API_URL
+    from config import TELEGRAM_TOKEN as TOKEN, API_URL
 except ImportError:
-    # استخدام متغيرات بيئية إذا لم يتوفر ملف config.py (للاستضافة)
     import os
-    TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+    TOKEN = os.environ.get("TELEGRAM_TOKEN")
     API_URL = os.environ.get("API_URL")
+
 # Thresholds
 BATTERY_CHANGE_THRESHOLD = 3   # Battery change percentage that triggers alert
 FRIDGE_ACTIVATION_THRESHOLD = 60  # Battery percentage needed for fridge
