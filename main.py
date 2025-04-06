@@ -117,7 +117,7 @@ async def send_status_message(update: Update, data: dict):
         electricity_time_str = "الكهرباء متوفرة حالياً"
     else:
         electricity_status = "لا يوجد كهرباء ⚠️"
-        electricity_time_str = f"{last_electricity_time.strftime('%H:%M:%S')}" if last_electricity_time else "--"
+        electricity_time_str = f"{last_electricity_time.strftime('%H:%M:%S')}" if last_electricity_time else "غير معلوم 🤷"
     
     message = (
         f"🔋 شحن البطارية: {data['battery']:.0f}%\n"
