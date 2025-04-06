@@ -6,6 +6,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, JobQu
 from flask import Flask
 import threading
 import time
+import datetime
 
 # ============================== CONFIGURATION ============================== #
 try:
@@ -19,6 +20,10 @@ except ImportError:
 BATTERY_CHANGE_THRESHOLD = 3   # Battery change percentage that triggers alert
 FRIDGE_ACTIVATION_THRESHOLD = 60  # Battery percentage needed for fridge
 POWER_THRESHOLDS = (300, 500)  # Power thresholds (normal, medium, high) in watts
+
+# Global variables
+last_power_usage = None  # To track power usage for alerts
+last_electricity_time = None  # To track when electricity was last available
 
 # ============================== FLASK WEB SERVER ============================== #
 flask_app = Flask(__name__)
@@ -35,13 +40,16 @@ def run_flask_server():
 # ============================== DATA FETCHING ============================== #
 def get_system_data():
     """Get power system data from API"""
+    global last_electricity_time
+    
     try:
         response = requests.get(API_URL)
         if response.status_code == 200:
             data = response.json()
             params = {item['par']: item['val'] for item in data['dat']['parameter']}
             
-            return {
+            # Create the data dictionary
+            system_data = {
                 'battery': float(params['bt_battery_capacity']),
                 'voltage': float(params['bt_grid_voltage']),
                 'charging': float(params['bt_grid_voltage']) > 0,
@@ -49,6 +57,15 @@ def get_system_data():
                 'fridge_voltage': float(params['bt_ac2_output_voltage']),
                 'charge_current': float(params.get('bt_battery_charging_current', 0))
             }
+            
+            # Update last electricity time if charging
+            if system_data['charging'] and not last_electricity_time:
+                last_electricity_time = datetime.datetime.now()
+            # Reset the timestamp if not charging
+            elif not system_data['charging']:
+                last_electricity_time = None
+                
+            return system_data
         return None
     except Exception as e:
         print(f"خطأ في الاتصال: {str(e)}")
@@ -87,19 +104,20 @@ async def send_error_message(update: Update):
 
 async def send_status_message(update: Update, data: dict):
     """Format and send current system status"""
+    electricity_time_str = f"{last_electricity_time.strftime('%H:%M:%S')}" if last_electricity_time else "--"
+    
     message = (
         f"🔋 شحن البطارية: {data['battery']:.0f}%\n"
         f"⚡ فولت الكهرباء: {data['voltage']:.2f}V\n"
         f"🔌 الكهرباء: {'موجودة ويتم الشحن✔️' if data['charging'] else 'لا يوجد كهرباء ⚠️'}\n"
         f"⚙️ استهلاك البطارية: {data['power_usage']:.0f}W ({get_consumption_status(data['power_usage'])})\n"
         f"🔌 تيار الشحن: {get_charging_status(data['charge_current'])}\n"
-        f"🧊 حالة البراد: {get_fridge_status(data)}"
+        f"🧊 حالة البراد: {get_fridge_status(data)}\n"
+        f"⏱️ اخر وقت اجت فيه الكهرباء كان الساعة: {electricity_time_str}"
     )
     await update.message.reply_text(message)
 
 # ============================== AUTOMATIC MONITORING ============================== #
-last_power_usage = None  # Global variable to track power usage for alerts
-
 def start_auto_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, initial_data: dict):
     """Start automatic monitoring job"""
     chat_id = update.effective_chat.id
@@ -161,13 +179,20 @@ async def send_power_reduced_alert(context: ContextTypes.DEFAULT_TYPE, power_usa
 
 async def send_electricity_alert(context: ContextTypes.DEFAULT_TYPE, is_charging: bool, battery_level: float):
     """Send alert when electricity status changes, including battery level"""
-    message = (
-        f"⚡ عادت الكهرباء! الشحن جارٍ الآن.\n"
-        f"نسبة البطارية حالياً هي: {battery_level:.0f}%"
-    ) if is_charging else (
-        f"⚠️ انقطعت الكهرباء! يتم التشغيل على البطارية.\n"
-        f"نسبة البطارية حالياً هي: {battery_level:.0f}%"
-    )
+    global last_electricity_time
+    
+    if is_charging:
+        last_electricity_time = datetime.datetime.now()
+        message = (
+            f"⚡ عادت الكهرباء! الشحن جارٍ الآن.\n"
+            f"نسبة البطارية حالياً هي: {battery_level:.0f}%"
+        )
+    else:
+        message = (
+            f"⚠️ انقطعت الكهرباء! يتم التشغيل على البطارية.\n"
+            f"نسبة البطارية حالياً هي: {battery_level:.0f}%"
+        )
+    
     await context.bot.send_message(chat_id=context.job.chat_id, text=message)
 
 async def send_battery_alert(context: ContextTypes.DEFAULT_TYPE, old_value: float, new_value: float):
@@ -190,18 +215,11 @@ def get_charging_status(current: float) -> str:
     return f"{current:.1f}A (لا يوجد شحن ⚪)"
 
 def get_fridge_status(data: dict) -> str:
-    """Determine fridge status and calculate remaining runtime if on battery"""
+    """Determine fridge status"""
     if data['charging']:  # If electricity is available
         return "يعمل على الكهرباء ✅"
     elif data['battery'] > FRIDGE_ACTIVATION_THRESHOLD:  # If on battery but above threshold
-        if data['power_usage'] > 0:
-            # Estimate runtime: assuming 1% battery = 30 Watt-hours
-            battery_watt_hours = data['battery'] * 30
-            # Use only 80% of battery capacity
-            usable_watt_hours = battery_watt_hours * 0.8
-            hours = usable_watt_hours / data['power_usage']
-            return f"يعمل على البطارية ({int(hours)}h {int((hours*60)%60)}m) ⏳"
-        return "يعمل على البطارية (وقت غير محدد) ⚠️"
+        return "يعمل على البطارية ⚠️"
     elif data['fridge_voltage'] > 0 and not data['charging']:
         return "يعمل على البطارية (البطارية منخفضة) ⚠️"
     return "مطفئ ⛔"
