@@ -126,7 +126,7 @@ async def send_status_message(update: Update, data: dict):
         f"⚙️ استهلاك البطارية: {data['power_usage']:.0f}W ({get_consumption_status(data['power_usage'])})\n"
         f"🔌 تيار الشحن: {get_charging_status(data['charge_current'])}\n"
         f"🧊 حالة البراد: {get_fridge_status(data)}\n"
-        f"⏱️ اخر وقت اجت فيه الكهرباء كان الساعة: {electricity_time_str}"
+        f"⏱️ اخر توقيت لوجود الكهرباء: {electricity_time_str}"
     )
     await update.message.reply_text(message)
 
