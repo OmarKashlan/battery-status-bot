@@ -12,9 +12,9 @@ import datetime
 try:
     from config import TELEGRAM_TOKEN as TOKEN, API_URL
 except ImportError:
-import os
-TOKEN = os.environ.get("TELEGRAM_TOKEN")
-API_URL = os.environ.get("API_URL")
+    import os  # هنا يجب إضافة مسافات للتسطير
+    TOKEN = os.environ.get("TELEGRAM_TOKEN")  # هنا يجب إضافة مسافات للتسطير
+    API_URL = os.environ.get("API_URL")  # هنا يجب إضافة مسافات للتسطير
 
 # Thresholds
 BATTERY_CHANGE_THRESHOLD = 3   # Battery change percentage that triggers alert
