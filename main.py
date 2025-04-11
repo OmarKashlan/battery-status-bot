@@ -7,14 +7,18 @@ from flask import Flask
 import threading
 import time
 import datetime
+import pytz  # إضافة مكتبة pytz
 
 # ============================== CONFIGURATION ============================== #
 try:
     from config import TELEGRAM_TOKEN as TOKEN, API_URL
 except ImportError:
-    import os  # هنا يجب إضافة مسافات للتسطير
-    TOKEN = os.environ.get("TELEGRAM_TOKEN")  # هنا يجب إضافة مسافات للتسطير
-    API_URL = os.environ.get("API_URL")  # هنا يجب إضافة مسافات للتسطير
+    import os
+    TOKEN = os.environ.get("TELEGRAM_TOKEN")
+    API_URL = os.environ.get("API_URL")
+
+# Set timezone to Damascus (Syria)
+TIMEZONE = pytz.timezone('Asia/Damascus')
 
 # Thresholds
 BATTERY_CHANGE_THRESHOLD = 3   # Battery change percentage that triggers alert
@@ -59,13 +63,13 @@ def get_system_data():
                 'charge_current': float(params.get('bt_battery_charging_current', 0))
             }
             
-            # Update electricity tracking
+            # Update electricity tracking with correct timezone
             if system_data['charging']:
                 # If this is the first time we're seeing electricity, record the start time
                 if electricity_start_time is None:
-                    electricity_start_time = datetime.datetime.now()
+                    electricity_start_time = datetime.datetime.now(TIMEZONE)
                 # Always update the last seen time when electricity is available
-                last_electricity_time = datetime.datetime.now()
+                last_electricity_time = datetime.datetime.now(TIMEZONE)
             else:
                 # If electricity was previously available but now it's gone, record the last time
                 electricity_start_time = None
@@ -111,13 +115,13 @@ async def send_status_message(update: Update, data: dict):
     """Format and send current system status"""
     global last_electricity_time
     
-    # Format the electricity time string
+    # Format the electricity time string with 12-hour format
     if data['charging']:
         electricity_status = "موجودة ويتم الشحن✔️"
         electricity_time_str = "الكهرباء متوفرة حالياً"
     else:
         electricity_status = "لا يوجد كهرباء ⚠️"
-        electricity_time_str = f"{last_electricity_time.strftime('%H:%M:%S')}" if last_electricity_time else "غير معلوم 🤷"
+        electricity_time_str = f"{last_electricity_time.strftime('%I:%M:%S %p')}" if last_electricity_time else "غير معلوم 🤷"
     
     message = (
         f"🔋 شحن البطارية: {data['battery']:.0f}%\n"
@@ -194,7 +198,7 @@ async def send_electricity_alert(context: ContextTypes.DEFAULT_TYPE, is_charging
     """Send alert when electricity status changes, including battery level"""
     global last_electricity_time, electricity_start_time
     
-    current_time = datetime.datetime.now()
+    current_time = datetime.datetime.now(TIMEZONE)
     
     if is_charging:
         # Update tracking variables
