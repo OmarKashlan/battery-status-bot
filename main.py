@@ -24,11 +24,14 @@ TIMEZONE = pytz.timezone('Asia/Damascus')
 BATTERY_CHANGE_THRESHOLD = 3   # Battery change percentage that triggers alert
 FRIDGE_ACTIVATION_THRESHOLD = 60  # Battery percentage needed for fridge
 POWER_THRESHOLDS = (300, 500)  # Power thresholds (normal, medium, high) in watts
+API_CHECK_INTERVAL = 300  # Check API every 5 minutes (300 seconds)
 
 # Global variables
 last_power_usage = None  # To track power usage for alerts
 last_electricity_time = None  # To track when electricity was last available
 electricity_start_time = None  # To track when electricity started
+api_failure_notified = False  # To track if we've already notified about API failure
+admin_chat_id = None  # To store admin's chat ID for notifications
 
 # ============================== FLASK WEB SERVER ============================== #
 flask_app = Flask(__name__)
@@ -80,9 +83,60 @@ def get_system_data():
         print(f"خطأ في الاتصال: {str(e)}")
         return None
 
+# ============================== API HEALTH CHECK ============================== #
+async def check_api_health(context: ContextTypes.DEFAULT_TYPE):
+    """Periodically check if the API is working and notify if it fails"""
+    global api_failure_notified, admin_chat_id
+    
+    # Skip if we don't have an admin chat ID to send notifications to
+    if not admin_chat_id:
+        return
+    
+    data = get_system_data()
+    
+    if not data:
+        # API is not working, send notification if we haven't already
+        if not api_failure_notified:
+            await context.bot.send_message(
+                chat_id=admin_chat_id,
+                text="⚠️ تنبيه تلقائي: تعذر الاتصال بال API. يرجى تحديث الخدمة وتغيير عنوان API."
+            )
+            api_failure_notified = True
+    else:
+        # API is working again after a failure
+        if api_failure_notified:
+            await context.bot.send_message(
+                chat_id=admin_chat_id,
+                text="✅ تم استعادة الاتصال بال API بنجاح! البوت يعمل مرة أخرى."
+            )
+            api_failure_notified = False
+
 # ============================== TELEGRAM COMMANDS ============================== #
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /start command - initialize the bot and save admin chat ID"""
+    global admin_chat_id
+    
+    # Save the user's chat ID as admin
+    admin_chat_id = update.effective_chat.id
+    
+    await update.message.reply_text(
+        "مرحباً بك في بوت مراقبة نظام الطاقة! 🔋\n\n"
+        "الأوامر المتاحة:\n"
+        "/battery - عرض حالة النظام وبدء المراقبة التلقائية\n"
+        "/stop - إيقاف المراقبة التلقائية\n\n"
+        "سيتم إرسال إشعار تلقائي عند فشل الاتصال بال API."
+    )
+    
+    # Start the API health check job if not already running
+    start_api_health_check(context)
+
 async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /battery command - show status and start monitoring"""
+    global admin_chat_id
+    
+    # Save the user's chat ID as admin
+    admin_chat_id = update.effective_chat.id
+    
     data = get_system_data()
     
     if not data:
@@ -91,6 +145,9 @@ async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await send_status_message(update, data)
     start_auto_monitoring(update, context, data)
+    
+    # Start the API health check job if not already running
+    start_api_health_check(context)
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /stop command - stop monitoring"""
@@ -135,6 +192,19 @@ async def send_status_message(update: Update, data: dict):
     await update.message.reply_text(message)
 
 # ============================== AUTOMATIC MONITORING ============================== #
+def start_api_health_check(context: ContextTypes.DEFAULT_TYPE):
+    """Start API health check job"""
+    # Check if the job is already running
+    jobs = context.job_queue.get_jobs_by_name("api_health_check")
+    if not jobs:
+        # Add new job to check API health every API_CHECK_INTERVAL seconds
+        context.job_queue.run_repeating(
+            check_api_health,
+            interval=API_CHECK_INTERVAL,
+            first=10,  # First check after 10 seconds
+            name="api_health_check"
+        )
+
 def start_auto_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, initial_data: dict):
     """Start automatic monitoring job"""
     chat_id = update.effective_chat.id
@@ -258,13 +328,49 @@ def get_consumption_status(power: float) -> str:
         return "متوسط 🟡"
     return "كبير 🔴"
 
+# ============================== API URL UPDATE COMMAND ============================== #
+async def update_api_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /update_api command - update the API URL"""
+    global API_URL, api_failure_notified
+    
+    # Check if a URL was provided
+    if not context.args or len(context.args) < 1:
+        await update.message.reply_text(
+            "❌ يرجى توفير عنوان API الجديد بعد الأمر.\n"
+            "مثال: /update_api https://example.com/api/new_url"
+        )
+        return
+    
+    # Update the API URL
+    new_url = context.args[0]
+    API_URL = new_url
+    api_failure_notified = False  # Reset notification status
+    
+    # Test the new URL
+    data = get_system_data()
+    if data:
+        await update.message.reply_text(f"✅ تم تحديث عنوان API بنجاح وتم التحقق من صحته!")
+    else:
+        await update.message.reply_text(
+            f"⚠️ تم تحديث عنوان API، ولكن يبدو أنه لا يعمل بشكل صحيح.\n"
+            f"يرجى التحقق من العنوان والمحاولة مرة أخرى."
+        )
+
 # ============================== MAIN EXECUTION ============================== #
 def main():
     """Initialize and start the bot"""
     bot = ApplicationBuilder().token(TOKEN).build()
+    
+    # Add command handlers
+    bot.add_handler(CommandHandler("start", start_command))
     bot.add_handler(CommandHandler("battery", battery_command))
     bot.add_handler(CommandHandler("stop", stop_command))
+    bot.add_handler(CommandHandler("update_api", update_api_command))
+    
+    # Start the web server
     threading.Thread(target=run_flask_server).start()
+    
+    # Start polling
     bot.run_polling()
 
 if __name__ == "__main__":
