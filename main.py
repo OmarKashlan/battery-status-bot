@@ -124,9 +124,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "الأوامر المتاحة:\n"
         "/battery - عرض حالة النظام وبدء المراقبة التلقائية\n"
         "/stop - إيقاف المراقبة التلقائية\n"
-        "/buzzer - عرض حالة الزمور الحالية\n"
-        "/buzzer on - تشغيل الزمور\n"
-        "/buzzer off - إيقاف الزمور\n"
+        "/buzzer - عرض روابط التحكم بالزمور\n"
+        "/buzzer on - الحصول على رابط تشغيل الزمور\n"
+        "/buzzer off - الحصول على رابط إيقاف الزمور\n"
         "/update_api - تحديث عنوان API\n\n"
         "سيتم إرسال إشعار تلقائي عند فشل الاتصال بال API."
     )
@@ -165,167 +165,72 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ المراقبة التلقائية غير مفعلة حالياً.")
 
-# ============================== BUZZER CONTROL COMMANDS ============================== #
+# ============================== BUZZER CONTROL COMMAND ============================== #
 async def buzzer_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /buzzer command - control buzzer status"""
-    global admin_chat_id
+    """Handle /buzzer command - create direct control links using current API parameters"""
+    global admin_chat_id, API_URL
     
     # Save the user's chat ID as admin
     admin_chat_id = update.effective_chat.id
     
+    # Extract the base domain from API_URL
+    base_domain = "https://web1.shinemonitor.com"
+    if "web.dessmonitor.com" in API_URL:
+        base_domain = "https://web.dessmonitor.com"
+    elif "api.dessmonitor.com" in API_URL:
+        base_domain = "https://api.dessmonitor.com"
+    
+    # Extract authentication parameters from current API_URL
+    auth_params = {}
+    if '?' in API_URL:
+        query_string = API_URL.split('?')[1]
+        for param in query_string.split('&'):
+            if '=' in param:
+                key, value = param.split('=', 1)
+                if key in ['sign', 'salt', 'token', 'pn', 'sn', 'devcode', 'devaddr', 'source', 'i18n']:
+                    auth_params[key] = value
+    
+    # Create authentication part of URL
+    auth_url_part = '&'.join(f'{k}={v}' for k, v in auth_params.items() if v)
+    
+    # Create control URLs
+    base_url = f"{base_domain}/public/?"
+    on_url = f"{base_url}{auth_url_part}&action=ctrlDevice&id=std_buzzer_ctrl_a&val=69"
+    off_url = f"{base_url}{auth_url_part}&action=ctrlDevice&id=std_buzzer_ctrl_a&val=68"
+    status_url = f"{base_url}{auth_url_part}&action=queryDeviceCtrlValue&id=std_buzzer_ctrl_a"
+    
     # Check if arguments are provided (on/off)
-    if not context.args or len(context.args) < 1:
-        # If no argument, check current status first
-        status = await get_buzzer_status()
+    if context.args and len(context.args) > 0:
+        command = context.args[0].lower()
         
-        if status is None:
-            await update.message.reply_text("⚠️ تعذر الاتصال بال API للتحقق من حالة الزمور.")
-            return
-            
-        await update.message.reply_text(
-            f"🔊 حالة الزمور الحالية: {'مفعّل' if status == 'Enable' else 'معطل'}\n\n"
-            "استخدم الأمر مع 'on' لتشغيل الزمور أو 'off' لإيقافه.\n"
-            "مثال: /buzzer on"
-        )
-        return
-    
-    # Process the command with argument
-    command = context.args[0].lower()
-    
-    if command == "on":
-        result = await set_buzzer_status(True)
-        if result:
-            await update.message.reply_text("✅ تم تشغيل الزمور بنجاح.")
+        if command == "on":
+            await update.message.reply_text(
+                "🔊 لتشغيل الزمور، اضغط على الرابط التالي:\n\n"
+                f"{on_url}\n\n"
+                "ملاحظة: يجب أن تكون مسجل دخول في حسابك على Dessmonitor/SmartESS."
+            )
+        elif command == "off":
+            await update.message.reply_text(
+                "🔇 لإيقاف الزمور، اضغط على الرابط التالي:\n\n"
+                f"{off_url}\n\n"
+                "ملاحظة: يجب أن تكون مسجل دخول في حسابك على Dessmonitor/SmartESS."
+            )
         else:
-            await update.message.reply_text("⚠️ تعذر تشغيل الزمور. يرجى التحقق من الاتصال.")
-    
-    elif command == "off":
-        result = await set_buzzer_status(False)
-        if result:
-            await update.message.reply_text("✅ تم إيقاف الزمور بنجاح.")
-        else:
-            await update.message.reply_text("⚠️ تعذر إيقاف الزمور. يرجى التحقق من الاتصال.")
-    
+            await update.message.reply_text(
+                "❌ أمر غير صالح. استخدم:\n"
+                "/buzzer on - للحصول على رابط تشغيل الزمور\n"
+                "/buzzer off - للحصول على رابط إيقاف الزمور\n"
+                "/buzzer - لعرض الخيارات المتاحة"
+            )
     else:
+        # No arguments, show all options
         await update.message.reply_text(
-            "❌ أمر غير صالح. استخدم:\n"
-            "/buzzer on - لتشغيل الزمور\n"
-            "/buzzer off - لإيقاف الزمور"
+            "🔊 للتحكم بالزمور، اضغط على أحد الروابط التالية:\n\n"
+            f"👉 لتشغيل الزمور:\n{on_url}\n\n"
+            f"👉 لإيقاف الزمور:\n{off_url}\n\n"
+            f"👉 لمعرفة حالة الزمور الحالية:\n{status_url}\n\n"
+            "ملاحظة: يجب أن تكون مسجل دخول في حسابك على Dessmonitor/SmartESS."
         )
-
-async def get_buzzer_status():
-    """Get current buzzer status from API"""
-    try:
-        # استخدام العنوان الأساسي مباشرة
-        base_url = "https://web1.shinemonitor.com/public/"
-        
-        # استخراج المعاملات الأساسية من عنوان API الحالي
-        params = {}
-        if '?' in API_URL:
-            query_string = API_URL.split('?')[1]
-            for param in query_string.split('&'):
-                if '=' in param:
-                    key, value = param.split('=', 1)
-                    params[key] = value
-        
-        # الاحتفاظ بالمعاملات الأساسية فقط
-        essential_params = {
-            'sign': params.get('sign', ''),
-            'salt': params.get('salt', ''),
-            'token': params.get('token', ''),
-            'pn': params.get('pn', ''),
-            'sn': params.get('sn', ''),
-            'devcode': params.get('devcode', ''),
-            'devaddr': params.get('devaddr', ''),
-            'source': params.get('source', ''),
-            'i18n': params.get('i18n', '')
-        }
-        
-        # إضافة معلمات استعلام الزمور
-        query_params = essential_params.copy()
-        query_params.update({
-            'action': 'queryDeviceCtrlValue',
-            'id': 'std_buzzer_ctrl_a'
-        })
-        
-        # بناء عنوان URL كامل
-        query_url = base_url + '?' + '&'.join(f'{k}={v}' for k, v in query_params.items() if v)
-        
-        # طباعة عنوان URL للتصحيح
-        print(f"Buzzer status URL: {query_url}")
-        
-        # إرسال الطلب
-        response = requests.get(query_url)
-        
-        # طباعة الاستجابة للتصحيح
-        print(f"Buzzer status response: {response.status_code} - {response.text[:200]}")
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('err') == 0 and 'dat' in data:
-                return data['dat'].get('val')
-        
-        return None
-    except Exception as e:
-        print(f"خطأ في جلب حالة الزمور: {str(e)}")
-        return None
-
-async def set_buzzer_status(enable: bool):
-    """Set buzzer status (enable/disable)"""
-    try:
-        # استخدام العنوان الأساسي مباشرة
-        base_url = "https://web1.shinemonitor.com/public/"
-        
-        # استخراج المعاملات من API_URL
-        params = {}
-        if '?' in API_URL:
-            query_string = API_URL.split('?')[1]
-            for param in query_string.split('&'):
-                if '=' in param:
-                    key, value = param.split('=', 1)
-                    params[key] = value
-        
-        # المعاملات الأساسية
-        essential_params = {
-            'sign': params.get('sign', ''),
-            'salt': params.get('salt', ''),
-            'token': params.get('token', ''),
-            'pn': params.get('pn', ''),
-            'sn': params.get('sn', ''),
-            'devcode': params.get('devcode', ''),
-            'devaddr': params.get('devaddr', ''),
-            'source': params.get('source', ''),
-            'i18n': params.get('i18n', '')
-        }
-        
-        # إضافة معلمات التحكم بالزمور
-        control_params = essential_params.copy()
-        control_params.update({
-            'action': 'ctrlDevice',
-            'id': 'std_buzzer_ctrl_a',
-            'val': '69' if enable else '68'  # 69 = Enable, 68 = Disable
-        })
-        
-        # بناء عنوان URL كامل
-        control_url = base_url + '?' + '&'.join(f'{k}={v}' for k, v in control_params.items() if v)
-        
-        # طباعة عنوان URL للتصحيح
-        print(f"Buzzer control URL: {control_url}")
-        
-        # إرسال الطلب
-        response = requests.get(control_url)
-        
-        # طباعة الاستجابة للتصحيح
-        print(f"Buzzer control response: {response.status_code} - {response.text[:200]}")
-        
-        if response.status_code == 200:
-            data = response.json()
-            return data.get('err') == 0
-        
-        return False
-    except Exception as e:
-        print(f"خطأ في تعيين حالة الزمور: {str(e)}")
-        return False
 
 async def send_error_message(update: Update):
     """Send error message when data fetching fails"""
