@@ -123,7 +123,11 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "مرحباً بك في بوت مراقبة نظام الطاقة! 🔋\n\n"
         "الأوامر المتاحة:\n"
         "/battery - عرض حالة النظام وبدء المراقبة التلقائية\n"
-        "/stop - إيقاف المراقبة التلقائية\n\n"
+        "/stop - إيقاف المراقبة التلقائية\n"
+        "/buzzer - عرض حالة الزمور الحالية\n"
+        "/buzzer on - تشغيل الزمور\n"
+        "/buzzer off - إيقاف الزمور\n"
+        "/update_api - تحديث عنوان API\n\n"
         "سيتم إرسال إشعار تلقائي عند فشل الاتصال بال API."
     )
     
@@ -160,6 +164,132 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ تم إيقاف المراقبة التلقائية بنجاح.")
     else:
         await update.message.reply_text("❌ المراقبة التلقائية غير مفعلة حالياً.")
+
+# ============================== BUZZER CONTROL COMMANDS ============================== #
+async def buzzer_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /buzzer command - control buzzer status"""
+    global admin_chat_id
+    
+    # Save the user's chat ID as admin
+    admin_chat_id = update.effective_chat.id
+    
+    # Check if arguments are provided (on/off)
+    if not context.args or len(context.args) < 1:
+        # If no argument, check current status first
+        status = await get_buzzer_status()
+        
+        if status is None:
+            await update.message.reply_text("⚠️ تعذر الاتصال بال API للتحقق من حالة الزمور.")
+            return
+            
+        await update.message.reply_text(
+            f"🔊 حالة الزمور الحالية: {'مفعّل' if status == 'Enable' else 'معطل'}\n\n"
+            "استخدم الأمر مع 'on' لتشغيل الزمور أو 'off' لإيقافه.\n"
+            "مثال: /buzzer on"
+        )
+        return
+    
+    # Process the command with argument
+    command = context.args[0].lower()
+    
+    if command == "on":
+        result = await set_buzzer_status(True)
+        if result:
+            await update.message.reply_text("✅ تم تشغيل الزمور بنجاح.")
+        else:
+            await update.message.reply_text("⚠️ تعذر تشغيل الزمور. يرجى التحقق من الاتصال.")
+    
+    elif command == "off":
+        result = await set_buzzer_status(False)
+        if result:
+            await update.message.reply_text("✅ تم إيقاف الزمور بنجاح.")
+        else:
+            await update.message.reply_text("⚠️ تعذر إيقاف الزمور. يرجى التحقق من الاتصال.")
+    
+    else:
+        await update.message.reply_text(
+            "❌ أمر غير صالح. استخدم:\n"
+            "/buzzer on - لتشغيل الزمور\n"
+            "/buzzer off - لإيقاف الزمور"
+        )
+
+async def get_buzzer_status():
+    """Get current buzzer status from API"""
+    try:
+        # Parse API_URL to get base parts
+        base_url = API_URL.split('?')[0]
+        base_path = base_url.rsplit('/', 1)[0] if '/' in base_url else base_url
+        
+        # Extract parameters from API_URL 
+        params = {}
+        if '?' in API_URL:
+            query_string = API_URL.split('?')[1]
+            for param in query_string.split('&'):
+                if '=' in param:
+                    key, value = param.split('=', 1)
+                    params[key] = value
+        
+        # Keep essential parameters and update with buzzer query params
+        essential_params = {k: params.get(k, '') for k in ['sign', 'salt', 'token', 'pn', 'sn', 'devcode', 'devaddr', 'source', 'i18n']}
+        essential_params.update({
+            'action': 'queryDeviceCtrlValue',
+            'id': 'std_buzzer_ctrl_a'
+        })
+        
+        # Build the query URL
+        query_url = f"{base_path}/public/?{'&'.join(f'{k}={v}' for k, v in essential_params.items() if v)}"
+        
+        # Send the request
+        response = requests.get(query_url)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('err') == 0 and 'dat' in data:
+                return data['dat'].get('val')
+        
+        return None
+    except Exception as e:
+        print(f"خطأ في جلب حالة الزمور: {str(e)}")
+        return None
+
+async def set_buzzer_status(enable: bool):
+    """Set buzzer status (enable/disable)"""
+    try:
+        # Parse API_URL to get base parts
+        base_url = API_URL.split('?')[0]
+        base_path = base_url.rsplit('/', 1)[0] if '/' in base_url else base_url
+        
+        # Extract parameters from API_URL 
+        params = {}
+        if '?' in API_URL:
+            query_string = API_URL.split('?')[1]
+            for param in query_string.split('&'):
+                if '=' in param:
+                    key, value = param.split('=', 1)
+                    params[key] = value
+        
+        # Keep essential parameters and update with buzzer control params
+        essential_params = {k: params.get(k, '') for k in ['sign', 'salt', 'token', 'pn', 'sn', 'devcode', 'devaddr', 'source', 'i18n']}
+        essential_params.update({
+            'action': 'ctrlDevice',
+            'id': 'std_buzzer_ctrl_a',
+            'val': '69' if enable else '68'  # 69 = Enable, 68 = Disable
+        })
+        
+        # Build the query URL
+        query_url = f"{base_path}/public/?{'&'.join(f'{k}={v}' for k, v in essential_params.items() if v)}"
+        
+        # Send the request
+        response = requests.get(query_url)
+        
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('err') == 0
+        
+        return False
+    except Exception as e:
+        print(f"خطأ في تعيين حالة الزمور: {str(e)}")
+        return False
 
 async def send_error_message(update: Update):
     """Send error message when data fetching fails"""
@@ -366,6 +496,7 @@ def main():
     bot.add_handler(CommandHandler("battery", battery_command))
     bot.add_handler(CommandHandler("stop", stop_command))
     bot.add_handler(CommandHandler("update_api", update_api_command))
+    bot.add_handler(CommandHandler("buzzer", buzzer_command))
     
     # Start the web server
     threading.Thread(target=run_flask_server).start()
