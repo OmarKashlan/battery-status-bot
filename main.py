@@ -123,11 +123,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "مرحباً بك في بوت مراقبة نظام الطاقة! 🔋\n\n"
         "الأوامر المتاحة:\n"
         "/battery - عرض حالة النظام وبدء المراقبة التلقائية\n"
-        "/stop - إيقاف المراقبة التلقائية\n"
-        "/buzzer - عرض روابط التحكم بالزمور\n"
-        "/buzzer on - الحصول على رابط تشغيل الزمور\n"
-        "/buzzer off - الحصول على رابط إيقاف الزمور\n"
-        "/update_api - تحديث عنوان API\n\n"
+        "/stop - إيقاف المراقبة التلقائية\n\n"
         "سيتم إرسال إشعار تلقائي عند فشل الاتصال بال API."
     )
     
@@ -164,73 +160,6 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ تم إيقاف المراقبة التلقائية بنجاح.")
     else:
         await update.message.reply_text("❌ المراقبة التلقائية غير مفعلة حالياً.")
-
-# ============================== BUZZER CONTROL COMMAND ============================== #
-async def buzzer_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /buzzer command - create direct control links using current API parameters"""
-    global admin_chat_id, API_URL
-    
-    # Save the user's chat ID as admin
-    admin_chat_id = update.effective_chat.id
-    
-    # Extract the base domain from API_URL
-    base_domain = "https://web1.shinemonitor.com"
-    if "web.dessmonitor.com" in API_URL:
-        base_domain = "https://web.dessmonitor.com"
-    elif "api.dessmonitor.com" in API_URL:
-        base_domain = "https://api.dessmonitor.com"
-    
-    # Extract authentication parameters from current API_URL
-    auth_params = {}
-    if '?' in API_URL:
-        query_string = API_URL.split('?')[1]
-        for param in query_string.split('&'):
-            if '=' in param:
-                key, value = param.split('=', 1)
-                if key in ['sign', 'salt', 'token', 'pn', 'sn', 'devcode', 'devaddr', 'source', 'i18n']:
-                    auth_params[key] = value
-    
-    # Create authentication part of URL
-    auth_url_part = '&'.join(f'{k}={v}' for k, v in auth_params.items() if v)
-    
-    # Create control URLs
-    base_url = f"{base_domain}/public/?"
-    on_url = f"{base_url}{auth_url_part}&action=ctrlDevice&id=std_buzzer_ctrl_a&val=69"
-    off_url = f"{base_url}{auth_url_part}&action=ctrlDevice&id=std_buzzer_ctrl_a&val=68"
-    status_url = f"{base_url}{auth_url_part}&action=queryDeviceCtrlValue&id=std_buzzer_ctrl_a"
-    
-    # Check if arguments are provided (on/off)
-    if context.args and len(context.args) > 0:
-        command = context.args[0].lower()
-        
-        if command == "on":
-            await update.message.reply_text(
-                "🔊 لتشغيل الزمور، اضغط على الرابط التالي:\n\n"
-                f"{on_url}\n\n"
-                "ملاحظة: يجب أن تكون مسجل دخول في حسابك على Dessmonitor/SmartESS."
-            )
-        elif command == "off":
-            await update.message.reply_text(
-                "🔇 لإيقاف الزمور، اضغط على الرابط التالي:\n\n"
-                f"{off_url}\n\n"
-                "ملاحظة: يجب أن تكون مسجل دخول في حسابك على Dessmonitor/SmartESS."
-            )
-        else:
-            await update.message.reply_text(
-                "❌ أمر غير صالح. استخدم:\n"
-                "/buzzer on - للحصول على رابط تشغيل الزمور\n"
-                "/buzzer off - للحصول على رابط إيقاف الزمور\n"
-                "/buzzer - لعرض الخيارات المتاحة"
-            )
-    else:
-        # No arguments, show all options
-        await update.message.reply_text(
-            "🔊 للتحكم بالزمور، اضغط على أحد الروابط التالية:\n\n"
-            f"👉 لتشغيل الزمور:\n{on_url}\n\n"
-            f"👉 لإيقاف الزمور:\n{off_url}\n\n"
-            f"👉 لمعرفة حالة الزمور الحالية:\n{status_url}\n\n"
-            "ملاحظة: يجب أن تكون مسجل دخول في حسابك على Dessmonitor/SmartESS."
-        )
 
 async def send_error_message(update: Update):
     """Send error message when data fetching fails"""
@@ -437,7 +366,6 @@ def main():
     bot.add_handler(CommandHandler("battery", battery_command))
     bot.add_handler(CommandHandler("stop", stop_command))
     bot.add_handler(CommandHandler("update_api", update_api_command))
-    bot.add_handler(CommandHandler("buzzer", buzzer_command))
     
     # Start the web server
     threading.Thread(target=run_flask_server).start()
