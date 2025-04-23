@@ -216,11 +216,10 @@ async def buzzer_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_buzzer_status():
     """Get current buzzer status from API"""
     try:
-        # Parse API_URL to get base parts
-        base_url = API_URL.split('?')[0]
-        base_path = base_url.rsplit('/', 1)[0] if '/' in base_url else base_url
+        # استخدام العنوان الأساسي مباشرة
+        base_url = "https://web1.shinemonitor.com/public/"
         
-        # Extract parameters from API_URL 
+        # استخراج المعاملات الأساسية من عنوان API الحالي
         params = {}
         if '?' in API_URL:
             query_string = API_URL.split('?')[1]
@@ -229,18 +228,37 @@ async def get_buzzer_status():
                     key, value = param.split('=', 1)
                     params[key] = value
         
-        # Keep essential parameters and update with buzzer query params
-        essential_params = {k: params.get(k, '') for k in ['sign', 'salt', 'token', 'pn', 'sn', 'devcode', 'devaddr', 'source', 'i18n']}
-        essential_params.update({
+        # الاحتفاظ بالمعاملات الأساسية فقط
+        essential_params = {
+            'sign': params.get('sign', ''),
+            'salt': params.get('salt', ''),
+            'token': params.get('token', ''),
+            'pn': params.get('pn', ''),
+            'sn': params.get('sn', ''),
+            'devcode': params.get('devcode', ''),
+            'devaddr': params.get('devaddr', ''),
+            'source': params.get('source', ''),
+            'i18n': params.get('i18n', '')
+        }
+        
+        # إضافة معلمات استعلام الزمور
+        query_params = essential_params.copy()
+        query_params.update({
             'action': 'queryDeviceCtrlValue',
             'id': 'std_buzzer_ctrl_a'
         })
         
-        # Build the query URL
-        query_url = f"{base_path}/public/?{'&'.join(f'{k}={v}' for k, v in essential_params.items() if v)}"
+        # بناء عنوان URL كامل
+        query_url = base_url + '?' + '&'.join(f'{k}={v}' for k, v in query_params.items() if v)
         
-        # Send the request
+        # طباعة عنوان URL للتصحيح
+        print(f"Buzzer status URL: {query_url}")
+        
+        # إرسال الطلب
         response = requests.get(query_url)
+        
+        # طباعة الاستجابة للتصحيح
+        print(f"Buzzer status response: {response.status_code} - {response.text[:200]}")
         
         if response.status_code == 200:
             data = response.json()
@@ -255,11 +273,10 @@ async def get_buzzer_status():
 async def set_buzzer_status(enable: bool):
     """Set buzzer status (enable/disable)"""
     try:
-        # Parse API_URL to get base parts
-        base_url = API_URL.split('?')[0]
-        base_path = base_url.rsplit('/', 1)[0] if '/' in base_url else base_url
+        # استخدام العنوان الأساسي مباشرة
+        base_url = "https://web1.shinemonitor.com/public/"
         
-        # Extract parameters from API_URL 
+        # استخراج المعاملات من API_URL
         params = {}
         if '?' in API_URL:
             query_string = API_URL.split('?')[1]
@@ -268,19 +285,38 @@ async def set_buzzer_status(enable: bool):
                     key, value = param.split('=', 1)
                     params[key] = value
         
-        # Keep essential parameters and update with buzzer control params
-        essential_params = {k: params.get(k, '') for k in ['sign', 'salt', 'token', 'pn', 'sn', 'devcode', 'devaddr', 'source', 'i18n']}
-        essential_params.update({
+        # المعاملات الأساسية
+        essential_params = {
+            'sign': params.get('sign', ''),
+            'salt': params.get('salt', ''),
+            'token': params.get('token', ''),
+            'pn': params.get('pn', ''),
+            'sn': params.get('sn', ''),
+            'devcode': params.get('devcode', ''),
+            'devaddr': params.get('devaddr', ''),
+            'source': params.get('source', ''),
+            'i18n': params.get('i18n', '')
+        }
+        
+        # إضافة معلمات التحكم بالزمور
+        control_params = essential_params.copy()
+        control_params.update({
             'action': 'ctrlDevice',
             'id': 'std_buzzer_ctrl_a',
             'val': '69' if enable else '68'  # 69 = Enable, 68 = Disable
         })
         
-        # Build the query URL
-        query_url = f"{base_path}/public/?{'&'.join(f'{k}={v}' for k, v in essential_params.items() if v)}"
+        # بناء عنوان URL كامل
+        control_url = base_url + '?' + '&'.join(f'{k}={v}' for k, v in control_params.items() if v)
         
-        # Send the request
-        response = requests.get(query_url)
+        # طباعة عنوان URL للتصحيح
+        print(f"Buzzer control URL: {control_url}")
+        
+        # إرسال الطلب
+        response = requests.get(control_url)
+        
+        # طباعة الاستجابة للتصحيح
+        print(f"Buzzer control response: {response.status_code} - {response.text[:200]}")
         
         if response.status_code == 200:
             data = response.json()
