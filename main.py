@@ -356,6 +356,76 @@ async def update_api_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"يرجى التحقق من العنوان والمحاولة مرة أخرى."
         )
 
+# ============================== BUZZER CONTROL ============================== #
+async def buzzer_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /buzzer command - control the buzzer"""
+    # Check if a parameter was provided
+    if not context.args or len(context.args) < 1:
+        await update.message.reply_text(
+            "❌ يرجى تحديد حالة الزمور: on أو off\n"
+            "مثال: /buzzer on"
+        )
+        return
+    
+    # Check if the parameter is valid
+    command = context.args[0].lower()
+    if command not in ["on", "off"]:
+        await update.message.reply_text("❌ الخيارات المتاحة فقط هي: on أو off")
+        return
+    
+    # Extract authentication parameters from the current API_URL
+    try:
+        # Use the existing API_URL to extract the base URL and authentication parameters
+        if not API_URL:
+            await update.message.reply_text("❌ لم يتم تكوين عنوان API. يرجى استخدام /update_api أولاً.")
+            return
+        
+        # Parse the API URL to extract authentication parameters
+        from urllib.parse import urlparse, parse_qs
+        
+        parsed_url = urlparse(API_URL)
+        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        query_params = parse_qs(parsed_url.query)
+        
+        # Extract the necessary authentication parameters
+        auth_params = {}
+        for param in ['sign', 'salt', 'token', 'pn', 'sn', 'devcode', 'devaddr']:
+            if param in query_params:
+                auth_params[param] = query_params[param][0]
+        
+        # Set the buzzer value (69 for on, 68 for off)
+        buzzer_value = "69" if command == "on" else "68"
+        
+        # Construct the control URL
+        control_params = {
+            **auth_params,
+            'action': 'ctrlDevice',
+            'id': 'std_buzzer_ctrl_a',
+            'val': buzzer_value,
+            'i18n': 'en_US'
+        }
+        
+        # Build the query string
+        query_string = "&".join([f"{k}={v}" for k, v in control_params.items()])
+        control_url = f"{base_url}/public/?{query_string}"
+        
+        # Send the URL as a clickable link
+        status_text = "تشغيل" if command == "on" else "إيقاف"
+        message = (
+            f"🔔 الرجاء النقر على الرابط التالي ل{status_text} الزمور:\n\n"
+            f"<a href='{control_url}'>اضغط هنا {status_text} الزمور</a>\n\n"
+            f"ملاحظة: قد تنتهي صلاحية هذا الرابط بعد فترة. إذا لم يعمل، يرجى تحديث API باستخدام /update_api"
+        )
+        
+        await update.message.reply_text(message, parse_mode="HTML")
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ حدث خطأ: {str(e)}")
+
+# Don't forget to add this command handler in the main function
+# Add this line in the main() function:
+# bot.add_handler(CommandHandler("buzzer", buzzer_command))
+
 # ============================== MAIN EXECUTION ============================== #
 def main():
     """Initialize and start the bot"""
@@ -365,6 +435,7 @@ def main():
     bot.add_handler(CommandHandler("start", start_command))
     bot.add_handler(CommandHandler("battery", battery_command))
     bot.add_handler(CommandHandler("stop", stop_command))
+    bot.add_handler(CommandHandler("buzzer", buzzer_command))
     bot.add_handler(CommandHandler("update_api", update_api_command))
     
     # Start the web server
