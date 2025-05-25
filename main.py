@@ -23,6 +23,7 @@ TIMEZONE = pytz.timezone('Asia/Damascus')
 # Thresholds
 BATTERY_CHANGE_THRESHOLD = 3   # Battery change percentage that triggers alert
 FRIDGE_ACTIVATION_THRESHOLD = 60  # Battery percentage needed for fridge
+FRIDGE_WARNING_THRESHOLD = 63     # Battery percentage to warn about fridge shutdown
 POWER_THRESHOLDS = (300, 500)  # Power thresholds (normal, medium, high) in watts
 API_CHECK_INTERVAL = 300  # Check API every 5 minutes (300 seconds)
 
@@ -31,6 +32,7 @@ last_power_usage = None  # To track power usage for alerts
 last_electricity_time = None  # To track when electricity was last available
 electricity_start_time = None  # To track when electricity started
 api_failure_notified = False  # To track if we've already notified about API failure
+fridge_warning_sent = False  # To track if fridge warning has been sent
 admin_chat_id = None  # To store admin's chat ID for notifications
 
 # ============================== FLASK WEB SERVER ============================== #
@@ -224,7 +226,7 @@ def start_auto_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, in
 
 async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
     """Check for important changes in system status"""
-    global last_power_usage
+    global last_power_usage, fridge_warning_sent
 
     old_data = context.job.data
     new_data = get_system_data()
@@ -246,6 +248,22 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
     # Check if electricity status changed
     if old_data['charging'] != new_data['charging']:
         await send_electricity_alert(context, new_data['charging'], new_data['battery'])
+        # Reset fridge warning when electricity comes back
+        if new_data['charging']:
+            fridge_warning_sent = False
+    
+    # Check for fridge warning (battery at 63% and no electricity)
+    if (not new_data['charging'] and 
+        new_data['battery'] <= FRIDGE_WARNING_THRESHOLD and 
+        new_data['battery'] > FRIDGE_ACTIVATION_THRESHOLD and 
+        not fridge_warning_sent):
+        await send_fridge_warning_alert(context, new_data['battery'])
+        fridge_warning_sent = True
+    
+    # Reset fridge warning if battery goes above warning threshold or below activation threshold
+    if (new_data['battery'] > FRIDGE_WARNING_THRESHOLD or 
+        new_data['battery'] <= FRIDGE_ACTIVATION_THRESHOLD):
+        fridge_warning_sent = False
     
     # Check for significant battery level changes
     if abs(new_data['battery'] - old_data['battery']) >= BATTERY_CHANGE_THRESHOLD:
@@ -298,6 +316,16 @@ async def send_battery_alert(context: ContextTypes.DEFAULT_TYPE, old_value: floa
         chat_id=context.job.chat_id,
         text=f"{arrow}\nالشحن: {old_value:.0f}% → {new_value:.0f}%"
     )
+
+async def send_fridge_warning_alert(context: ContextTypes.DEFAULT_TYPE, battery_level: float):
+    """Send warning when battery is close to fridge shutdown threshold"""
+    remaining_percentage = battery_level - FRIDGE_ACTIVATION_THRESHOLD
+    message = (
+        f"🧊⚠️ تنبيه البراد!\n"
+        f"البطارية حالياً: {battery_level:.0f}%\n"
+        f"متبقي {remaining_percentage:.0f}% فقط لينطفئ البراد عند الوصول لـ {FRIDGE_ACTIVATION_THRESHOLD}%"
+    )
+    await context.bot.send_message(chat_id=context.job.chat_id, text=message)
 
 # ============================== STATUS HELPERS ============================== #
 def get_charging_status(current: float) -> str:
