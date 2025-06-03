@@ -59,7 +59,7 @@ def get_system_data():
             params = {item['par']: item['val'] for item in data['dat']['parameter']}
             
             # Create the data dictionary
-system_data = {
+            system_data = {
                 'battery': float(params['bt_battery_capacity']),
                 'voltage': float(params['bt_grid_voltage']),
                 'charging': float(params['bt_grid_voltage']) > 0,
