@@ -53,13 +53,13 @@ def get_system_data():
     global last_electricity_time, electricity_start_time
     
     try:
-        response = requests.get(API_URL)
+        response = requests.get(API_URL, timeout=10)
         if response.status_code == 200:
             data = response.json()
             params = {item['par']: item['val'] for item in data['dat']['parameter']}
             
             # Create the data dictionary
-            system_data = {
+system_data = {
                 'battery': float(params['bt_battery_capacity']),
                 'voltage': float(params['bt_grid_voltage']),
                 'charging': float(params['bt_grid_voltage']) > 0,
@@ -70,13 +70,10 @@ def get_system_data():
             
             # Update electricity tracking with correct timezone
             if system_data['charging']:
-                # If this is the first time we're seeing electricity, record the start time
                 if electricity_start_time is None:
                     electricity_start_time = datetime.datetime.now(TIMEZONE)
-                # Always update the last seen time when electricity is available
                 last_electricity_time = datetime.datetime.now(TIMEZONE)
             else:
-                # If electricity was previously available but now it's gone, record the last time
                 electricity_start_time = None
                 
             return system_data
@@ -398,8 +395,15 @@ def main():
     # Start the web server
     threading.Thread(target=run_flask_server).start()
     
-    # Start polling
-    bot.run_polling()
+    # إضافة إعادة التشغيل التلقائي
+    while True:
+        try:
+            print("🚀 البوت بدأ العمل...")
+            bot.run_polling(drop_pending_updates=True)
+        except Exception as e:
+            print(f"❌ البوت توقف: {e}")
+            print("🔄 إعادة تشغيل خلال 30 ثانية...")
+            time.sleep(30)
 
 if __name__ == "__main__":
     main()
