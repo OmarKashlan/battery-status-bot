@@ -43,6 +43,11 @@ def status_check():
     """Status endpoint to check if bot is running"""
     return "✅ البوت يعمل بشكل طبيعي"
 
+@flask_app.route('/health')
+def health_check():
+    """Health check endpoint for Koyeb"""
+    return {"status": "healthy", "bot": "running"}, 200
+
 def run_flask_server():
     """Start Flask server on separate thread"""
     flask_app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
@@ -96,19 +101,25 @@ async def check_api_health(context: ContextTypes.DEFAULT_TYPE):
     if not data:
         # API is not working, send notification if we haven't already
         if not api_failure_notified:
-            await context.bot.send_message(
-                chat_id=admin_chat_id,
-                text="⚠️ تنبيه تلقائي: تعذر الاتصال بال API. يرجى تحديث الخدمة وتغيير عنوان API."
-            )
-            api_failure_notified = True
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_chat_id,
+                    text="⚠️ تنبيه تلقائي: تعذر الاتصال بال API. يرجى تحديث الخدمة وتغيير عنوان API."
+                )
+                api_failure_notified = True
+            except Exception as e:
+                print(f"فشل في إرسال إشعار API: {e}")
     else:
         # API is working again after a failure
         if api_failure_notified:
-            await context.bot.send_message(
-                chat_id=admin_chat_id,
-                text="✅ تم استعادة الاتصال بال API بنجاح! البوت يعمل مرة أخرى."
-            )
-            api_failure_notified = False
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_chat_id,
+                    text="✅ تم استعادة الاتصال بال API بنجاح! البوت يعمل مرة أخرى."
+                )
+                api_failure_notified = False
+            except Exception as e:
+                print(f"فشل في إرسال إشعار استعادة API: {e}")
 
 # ============================== TELEGRAM COMMANDS ============================== #
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -272,12 +283,18 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
 async def send_power_alert(context: ContextTypes.DEFAULT_TYPE, power_usage: float):
     """Send alert for high power consumption"""
     message = f"⚠️ تحذير! استهلاك الطاقة كبير جدًا: {power_usage:.0f}W"
-    await context.bot.send_message(chat_id=context.job.chat_id, text=message)
+    try:
+        await context.bot.send_message(chat_id=context.job.chat_id, text=message)
+    except Exception as e:
+        print(f"فشل في إرسال تنبيه استهلاك الطاقة: {e}")
 
 async def send_power_reduced_alert(context: ContextTypes.DEFAULT_TYPE, power_usage: float):
     """Send notification when power consumption decreases"""
     message = f"👍 تم خفض استهلاك الطاقة إلى {power_usage:.0f}W."
-    await context.bot.send_message(chat_id=context.job.chat_id, text=message)
+    try:
+        await context.bot.send_message(chat_id=context.job.chat_id, text=message)
+    except Exception as e:
+        print(f"فشل في إرسال تنبيه خفض الطاقة: {e}")
 
 async def send_electricity_alert(context: ContextTypes.DEFAULT_TYPE, is_charging: bool, battery_level: float):
     """Send alert when electricity status changes, including battery level"""
@@ -304,15 +321,21 @@ async def send_electricity_alert(context: ContextTypes.DEFAULT_TYPE, is_charging
             f"نسبة البطارية حالياً هي: {battery_level:.0f}%"
         )
     
-    await context.bot.send_message(chat_id=context.job.chat_id, text=message)
+    try:
+        await context.bot.send_message(chat_id=context.job.chat_id, text=message)
+    except Exception as e:
+        print(f"فشل في إرسال تنبيه الكهرباء: {e}")
 
 async def send_battery_alert(context: ContextTypes.DEFAULT_TYPE, old_value: float, new_value: float):
     """Send alert when battery percentage changes significantly"""
     arrow = "⬆️ زيادة" if new_value > old_value else "⬇️ انخفاض"
-    await context.bot.send_message(
-        chat_id=context.job.chat_id,
-        text=f"{arrow}\nالشحن: {old_value:.0f}% → {new_value:.0f}%"
-    )
+    try:
+        await context.bot.send_message(
+            chat_id=context.job.chat_id,
+            text=f"{arrow}\nالشحن: {old_value:.0f}% → {new_value:.0f}%"
+        )
+    except Exception as e:
+        print(f"فشل في إرسال تنبيه البطارية: {e}")
 
 async def send_fridge_warning_alert(context: ContextTypes.DEFAULT_TYPE, battery_level: float):
     """Send warning when battery is close to fridge shutdown threshold"""
@@ -322,7 +345,10 @@ async def send_fridge_warning_alert(context: ContextTypes.DEFAULT_TYPE, battery_
         f"البطارية حالياً: {battery_level:.0f}%\n"
         f"متبقي {remaining_percentage:.0f}% فقط لينطفئ البراد عند الوصول لـ {FRIDGE_ACTIVATION_THRESHOLD}%"
     )
-    await context.bot.send_message(chat_id=context.job.chat_id, text=message)
+    try:
+        await context.bot.send_message(chat_id=context.job.chat_id, text=message)
+    except Exception as e:
+        print(f"فشل في إرسال تنبيه البراد: {e}")
 
 # ============================== STATUS HELPERS ============================== #
 def get_charging_status(current: float) -> str:
@@ -384,26 +410,28 @@ async def update_api_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # ============================== MAIN EXECUTION ============================== #
 def main():
     """Initialize and start the bot"""
-    bot = ApplicationBuilder().token(TOKEN).build()
-    
-    # Add command handlers
-    bot.add_handler(CommandHandler("start", start_command))
-    bot.add_handler(CommandHandler("battery", battery_command))
-    bot.add_handler(CommandHandler("stop", stop_command))
-    bot.add_handler(CommandHandler("update_api", update_api_command))
-    
-    # Start the web server
-    threading.Thread(target=run_flask_server).start()
-    
-    # إضافة إعادة التشغيل التلقائي
-    while True:
-        try:
-            print("🚀 البوت بدأ العمل...")
-            bot.run_polling(drop_pending_updates=True)
-        except Exception as e:
-            print(f"❌ البوت توقف: {e}")
-            print("🔄 إعادة تشغيل خلال 30 ثانية...")
-            time.sleep(30)
+    try:
+        print("🚀 بدء تشغيل البوت...")
+        
+        bot = ApplicationBuilder().token(TOKEN).build()
+        
+        # Add command handlers
+        bot.add_handler(CommandHandler("start", start_command))
+        bot.add_handler(CommandHandler("battery", battery_command))
+        bot.add_handler(CommandHandler("stop", stop_command))
+        bot.add_handler(CommandHandler("update_api", update_api_command))
+        
+        # Start the web server
+        threading.Thread(target=run_flask_server, daemon=True).start()
+        
+        print("✅ البوت جاهز للعمل...")
+        
+        # Start polling - إزالة while loop لتجنب تشغيل instances متعددة
+        bot.run_polling(drop_pending_updates=True)
+        
+    except Exception as e:
+        print(f"❌ خطأ في تشغيل البوت: {e}")
+        raise e  # رفع الخطأ ليتولى Koyeb إعادة التشغيل
 
 if __name__ == "__main__":
     main()
