@@ -2,10 +2,7 @@
 import os
 import requests
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, JobQueue
-from flask import Flask
-import threading
-import time
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import datetime
 import pytz  # إضافة مكتبة pytz
 
@@ -13,7 +10,6 @@ import pytz  # إضافة مكتبة pytz
 try:
     from config import TELEGRAM_TOKEN as TOKEN, API_URL
 except ImportError:
-    import os
     TOKEN = os.environ.get("TELEGRAM_TOKEN")
     API_URL = os.environ.get("API_URL")
 
@@ -22,40 +18,25 @@ TIMEZONE = pytz.timezone('Asia/Damascus')
 
 # Thresholds
 BATTERY_CHANGE_THRESHOLD = 3   # Battery change percentage that triggers alert
-FRIDGE_ACTIVATION_THRESHOLD = 60  # Battery percentage needed for fridge
-FRIDGE_WARNING_THRESHOLD = 63     # Battery percentage to warn about fridge shutdown
-POWER_THRESHOLDS = (300, 500)  # Power thresholds (normal, medium, high) in watts
-API_CHECK_INTERVAL = 300  # Check API every 5 minutes (300 seconds)
+FRIDGE_ACTIVATION_THRESHOLD = 50  # Battery percentage needed for fridge
+FRIDGE_WARNING_THRESHOLD = 53     # Battery percentage to warn about fridge shutdown
+POWER_THRESHOLDS = (500, 850)  # Power thresholds (normal, medium, high) in watts
 
 # Global variables
 last_power_usage = None  # To track power usage for alerts
 last_electricity_time = None  # To track when electricity was last available
 electricity_start_time = None  # To track when electricity started
-api_failure_notified = False  # To track if we've already notified about API failure
 fridge_warning_sent = False  # To track if fridge warning has been sent
 admin_chat_id = None  # To store admin's chat ID for notifications
-
-# ============================== FLASK WEB SERVER ============================== #
-flask_app = Flask(__name__)
-
-@flask_app.route('/')
-def status_check():
-    """Status endpoint to check if bot is running"""
-    return "✅ البوت يعمل بشكل طبيعي"
-
-@flask_app.route('/health')
-def health_check():
-    """Health check endpoint for Koyeb"""
-    return {"status": "healthy", "bot": "running"}, 200
-
-def run_flask_server():
-    """Start Flask server on separate thread"""
-    flask_app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
 
 # ============================== DATA FETCHING ============================== #
 def get_system_data():
     """Get power system data from API"""
     global last_electricity_time, electricity_start_time
+    
+    if not API_URL:
+        print("خطأ: عنوان API غير محدد")
+        return None
     
     try:
         response = requests.get(API_URL, timeout=10)
@@ -65,11 +46,11 @@ def get_system_data():
             
             # Create the data dictionary
             system_data = {
-                'battery': float(params['bt_battery_capacity']),
-                'voltage': float(params['bt_grid_voltage']),
-                'charging': float(params['bt_grid_voltage']) > 0,
-                'power_usage': float(params['bt_load_active_power_sole']) * 1000,
-                'fridge_voltage': float(params['bt_ac2_output_voltage']),
+                'battery': float(params.get('bt_battery_capacity', 0)),
+                'voltage': float(params.get('bt_grid_voltage', 0)),
+                'charging': float(params.get('bt_grid_voltage', 0)) > 0,
+                'power_usage': float(params.get('bt_load_active_power_sole', 0)) * 1000,
+                'fridge_voltage': float(params.get('bt_ac2_output_voltage', 0)),
                 'charge_current': float(params.get('bt_battery_charging_current', 0))
             }
             
@@ -87,40 +68,6 @@ def get_system_data():
         print(f"خطأ في الاتصال: {str(e)}")
         return None
 
-# ============================== API HEALTH CHECK ============================== #
-async def check_api_health(context: ContextTypes.DEFAULT_TYPE):
-    """Periodically check if the API is working and notify if it fails"""
-    global api_failure_notified, admin_chat_id
-    
-    # Skip if we don't have an admin chat ID to send notifications to
-    if not admin_chat_id:
-        return
-    
-    data = get_system_data()
-    
-    if not data:
-        # API is not working, send notification if we haven't already
-        if not api_failure_notified:
-            try:
-                await context.bot.send_message(
-                    chat_id=admin_chat_id,
-                    text="⚠️ تنبيه تلقائي: تعذر الاتصال بال API. يرجى تحديث الخدمة وتغيير عنوان API."
-                )
-                api_failure_notified = True
-            except Exception as e:
-                print(f"فشل في إرسال إشعار API: {e}")
-    else:
-        # API is working again after a failure
-        if api_failure_notified:
-            try:
-                await context.bot.send_message(
-                    chat_id=admin_chat_id,
-                    text="✅ تم استعادة الاتصال بال API بنجاح! البوت يعمل مرة أخرى."
-                )
-                api_failure_notified = False
-            except Exception as e:
-                print(f"فشل في إرسال إشعار استعادة API: {e}")
-
 # ============================== TELEGRAM COMMANDS ============================== #
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command - initialize the bot and save admin chat ID"""
@@ -133,12 +80,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "مرحباً بك في بوت مراقبة نظام الطاقة! 🔋\n\n"
         "الأوامر المتاحة:\n"
         "/battery - عرض حالة النظام وبدء المراقبة التلقائية\n"
-        "/stop - إيقاف المراقبة التلقائية\n\n"
-        "سيتم إرسال إشعار تلقائي عند فشل الاتصال بال API."
+        "/stop - إيقاف المراقبة التلقائية\n"
+        "/update_api - تحديث عنوان API"
     )
-    
-    # Start the API health check job if not already running
-    start_api_health_check(context)
 
 async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /battery command - show status and start monitoring"""
@@ -155,9 +99,6 @@ async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await send_status_message(update, data)
     start_auto_monitoring(update, context, data)
-    
-    # Start the API health check job if not already running
-    start_api_health_check(context)
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /stop command - stop monitoring"""
@@ -175,7 +116,7 @@ async def send_error_message(update: Update):
     """Send error message when data fetching fails"""
     await update.message.reply_photo(
         photo="https://i.ibb.co/Sd57f0d/Whats-App-Image-2025-01-20-at-23-04-54-515fe6e6.jpg",
-        caption="⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة "
+        caption=        "⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة"
     )
 
 async def send_status_message(update: Update, data: dict):
@@ -202,19 +143,6 @@ async def send_status_message(update: Update, data: dict):
     await update.message.reply_text(message)
 
 # ============================== AUTOMATIC MONITORING ============================== #
-def start_api_health_check(context: ContextTypes.DEFAULT_TYPE):
-    """Start API health check job"""
-    # Check if the job is already running
-    jobs = context.job_queue.get_jobs_by_name("api_health_check")
-    if not jobs:
-        # Add new job to check API health every API_CHECK_INTERVAL seconds
-        context.job_queue.run_repeating(
-            check_api_health,
-            interval=API_CHECK_INTERVAL,
-            first=10,  # First check after 10 seconds
-            name="api_health_check"
-        )
-
 def start_auto_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, initial_data: dict):
     """Start automatic monitoring job"""
     chat_id = update.effective_chat.id
@@ -242,25 +170,28 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
     if not new_data:
         return
     
-    current_time = time.time()
-
+    # If this is the first run, just store the data and return
+    if not old_data:
+        context.job.data = new_data
+        return
+    
     # Check power usage changes
     if new_data['power_usage'] > POWER_THRESHOLDS[1]:
-        if last_power_usage is None or new_data['power_usage'] != last_power_usage:
+        if last_power_usage is None:
             await send_power_alert(context, new_data['power_usage'])
             last_power_usage = new_data['power_usage']
-    elif new_data['power_usage'] <= POWER_THRESHOLDS[1] and old_data['power_usage'] > POWER_THRESHOLDS[1]:
+    elif new_data['power_usage'] <= POWER_THRESHOLDS[1] and old_data.get('power_usage', 0) > POWER_THRESHOLDS[1]:
         await send_power_reduced_alert(context, new_data['power_usage'])
         last_power_usage = None
 
     # Check if electricity status changed
-    if old_data['charging'] != new_data['charging']:
+    if old_data.get('charging', False) != new_data['charging']:
         await send_electricity_alert(context, new_data['charging'], new_data['battery'])
         # Reset fridge warning when electricity comes back
         if new_data['charging']:
             fridge_warning_sent = False
     
-    # Check for fridge warning (battery at 63% and no electricity)
+    # Check for fridge warning (battery at 53% and no electricity)
     if (not new_data['charging'] and 
         new_data['battery'] <= FRIDGE_WARNING_THRESHOLD and 
         new_data['battery'] > FRIDGE_ACTIVATION_THRESHOLD and 
@@ -273,8 +204,8 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
         new_data['battery'] <= FRIDGE_ACTIVATION_THRESHOLD):
         fridge_warning_sent = False
     
-    # Check for significant battery level changes
-    if abs(new_data['battery'] - old_data['battery']) >= BATTERY_CHANGE_THRESHOLD:
+    # Check for significant battery level changes (skip on first run)
+    if 'battery' in old_data and abs(new_data['battery'] - old_data['battery']) >= BATTERY_CHANGE_THRESHOLD:
         await send_battery_alert(context, old_data['battery'], new_data['battery'])
 
     context.job.data = new_data
@@ -382,7 +313,7 @@ def get_consumption_status(power: float) -> str:
 # ============================== API URL UPDATE COMMAND ============================== #
 async def update_api_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /update_api command - update the API URL"""
-    global API_URL, api_failure_notified
+    global API_URL
     
     # Check if a URL was provided
     if not context.args or len(context.args) < 1:
@@ -395,7 +326,6 @@ async def update_api_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # Update the API URL
     new_url = context.args[0]
     API_URL = new_url
-    api_failure_notified = False  # Reset notification status
     
     # Test the new URL
     data = get_system_data()
@@ -410,6 +340,10 @@ async def update_api_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # ============================== MAIN EXECUTION ============================== #
 def main():
     """Initialize and start the bot"""
+    if not TOKEN:
+        print("❌ خطأ: TELEGRAM_TOKEN غير محدد. يرجى تعيينه في متغيرات البيئة أو ملف config.py")
+        return
+        
     try:
         print("🚀 بدء تشغيل البوت...")
         
@@ -421,17 +355,14 @@ def main():
         bot.add_handler(CommandHandler("stop", stop_command))
         bot.add_handler(CommandHandler("update_api", update_api_command))
         
-        # Start the web server
-        threading.Thread(target=run_flask_server, daemon=True).start()
-        
         print("✅ البوت جاهز للعمل...")
         
-        # Start polling - إزالة while loop لتجنب تشغيل instances متعددة
+        # Start polling
         bot.run_polling(drop_pending_updates=True)
         
     except Exception as e:
         print(f"❌ خطأ في تشغيل البوت: {e}")
-        raise e  # رفع الخطأ ليتولى Koyeb إعادة التشغيل
+        raise e
 
 if __name__ == "__main__":
     main()
