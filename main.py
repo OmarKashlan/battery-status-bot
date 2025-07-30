@@ -220,7 +220,6 @@ async def fast_monitor_changes(context: ContextTypes.DEFAULT_TYPE):
     # If this is the first run, just store data
     if not old_data:
         context.job.data = new_data
-    print(f"✅ انتهى فحص التغييرات - {datetime.datetime.now().strftime('%H:%M:%S')}")
         return
 
     # Create alert tasks to run concurrently
