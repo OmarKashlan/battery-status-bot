@@ -2,12 +2,12 @@
 import os
 import requests
 import asyncio
-import aiohttp
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import datetime
 import pytz
 from typing import Optional, Dict
+import json
 
 # ============================== CONFIGURATION ============================== #
 try:
@@ -26,9 +26,9 @@ FRIDGE_WARNING_THRESHOLD = 53
 POWER_THRESHOLDS = (500, 850)
 
 # Performance settings
-API_TIMEOUT = 5  # تقليل timeout إلى 5 ثواني
-MONITORING_INTERVAL = 5  # فحص كل 5 ثواني بدلاً من 10
-MAX_RETRIES = 2  # محاولات إعادة الاتصال
+API_TIMEOUT = 10  # Increased timeout for stability
+MONITORING_INTERVAL = 10  # Check every 10 seconds for stability
+MAX_RETRIES = 3  # More retries for better reliability
 
 # Global variables
 last_power_usage = None
@@ -36,84 +36,65 @@ last_electricity_time = None
 electricity_start_time = None
 fridge_warning_sent = False
 admin_chat_id = None
-last_api_data = None  # Cache للبيانات الأخيرة
-api_session = None  # Async HTTP session
+last_api_data = None  # Cache for last data
 
-# ============================== ASYNC API HANDLING ============================== #
-async def init_api_session():
-    """Initialize async HTTP session for better performance"""
-    global api_session
-    if api_session is None:
-        timeout = aiohttp.ClientTimeout(total=API_TIMEOUT)
-        api_session = aiohttp.ClientSession(timeout=timeout)
-
-async def close_api_session():
-    """Close async HTTP session"""
-    global api_session
-    if api_session:
-        await api_session.close()
-        api_session = None
-
-async def get_system_data_async() -> Optional[Dict]:
-    """Get power system data from API - Async version for better performance"""
+# ============================== API HANDLING ============================== #
+def get_system_data() -> Optional[Dict]:
+    """Get power system data from API with proper error handling"""
     global last_electricity_time, electricity_start_time, last_api_data
     
     if not API_URL:
         print("خطأ: عنوان API غير محدد")
         return last_api_data  # Return cached data if available
     
-    await init_api_session()
-    
     for attempt in range(MAX_RETRIES):
         try:
-            async with api_session.get(API_URL) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    params = {item['par']: item['val'] for item in data['dat']['parameter']}
-                    
-                    # Create the data dictionary
-                    system_data = {
-                        'battery': float(params.get('bt_battery_capacity', 0)),
-                        'voltage': float(params.get('bt_grid_voltage', 0)),
-                        'charging': float(params.get('bt_grid_voltage', 0)) > 0,
-                        'power_usage': float(params.get('bt_load_active_power_sole', 0)) * 1000,
-                        'fridge_voltage': float(params.get('bt_ac2_output_voltage', 0)),
-                        'charge_current': float(params.get('bt_battery_charging_current', 0))
-                    }
-                    
-                    # Update electricity tracking with correct timezone
-                    current_time = datetime.datetime.now(TIMEZONE)
-                    if system_data['charging']:
-                        if electricity_start_time is None:
-                            electricity_start_time = current_time
-                        last_electricity_time = current_time
-                    else:
-                        electricity_start_time = None
-                    
-                    # Cache the successful data
-                    last_api_data = system_data
-                    return system_data
+            response = requests.get(API_URL, timeout=API_TIMEOUT)
+            
+            if response.status_code == 200:
+                data = response.json()
+                params = {item['par']: item['val'] for item in data['dat']['parameter']}
                 
-        except asyncio.TimeoutError:
+                # Create the data dictionary
+                system_data = {
+                    'battery': float(params.get('bt_battery_capacity', 0)),
+                    'voltage': float(params.get('bt_grid_voltage', 0)),
+                    'charging': float(params.get('bt_grid_voltage', 0)) > 0,
+                    'power_usage': float(params.get('bt_load_active_power_sole', 0)) * 1000,
+                    'fridge_voltage': float(params.get('bt_ac2_output_voltage', 0)),
+                    'charge_current': float(params.get('bt_battery_charging_current', 0))
+                }
+                
+                # Update electricity tracking with correct timezone
+                current_time = datetime.datetime.now(TIMEZONE)
+                if system_data['charging']:
+                    if electricity_start_time is None:
+                        electricity_start_time = current_time
+                    last_electricity_time = current_time
+                else:
+                    electricity_start_time = None
+                
+                # Cache the successful data
+                last_api_data = system_data
+                return system_data
+                
+            else:
+                print(f"API returned status code: {response.status_code}")
+                
+        except requests.exceptions.Timeout:
             print(f"API timeout - attempt {attempt + 1}/{MAX_RETRIES}")
+        except requests.exceptions.ConnectionError:
+            print(f"Connection error - attempt {attempt + 1}/{MAX_RETRIES}")
         except Exception as e:
             print(f"خطأ في الاتصال (محاولة {attempt + 1}/{MAX_RETRIES}): {str(e)}")
         
         # Wait briefly before retry
         if attempt < MAX_RETRIES - 1:
-            await asyncio.sleep(1)
+            import time
+            time.sleep(2)
     
     print("فشل في الاتصال بالAPI - استخدام البيانات المخزنة")
     return last_api_data
-
-def get_system_data():
-    """Sync wrapper for API calls"""
-    try:
-        loop = asyncio.get_event_loop()
-        return loop.run_until_complete(get_system_data_async())
-    except Exception as e:
-        print(f"خطأ في sync wrapper: {e}")
-        return last_api_data
 
 # ============================== TELEGRAM COMMANDS ============================== #
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -124,31 +105,33 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "مرحباً بك في بوت مراقبة نظام الطاقة! ⚡\n\n"
         "الأوامر المتاحة:\n"
-        "/battery - عرض حالة النظام وبدء المراقبة السريعة\n"
+        "/battery - عرض حالة النظام وبدء المراقبة\n"
         "/stop - إيقاف المراقبة\n"
         "/update_api - تحديث عنوان API\n\n"
-        "🚀 تم تحسين البوت للاستجابة الفورية!"
+        "🚀 البوت جاهز للعمل!"
     )
 
 async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /battery command - optimized for speed"""
+    """Handle /battery command"""
     global admin_chat_id
     admin_chat_id = update.effective_chat.id
     
     # Send "getting data" message first for immediate feedback
     status_msg = await update.message.reply_text("⏳ جاري الحصول على البيانات...")
     
-    data = await get_system_data_async()
+    # Get data in a separate thread to avoid blocking
+    loop = asyncio.get_event_loop()
+    data = await loop.run_in_executor(None, get_system_data)
     
     if not data:
         await status_msg.edit_text(
             "⚠️ تعذر الحصول على البيانات الحالية\n"
-            "جاري المحاولة مرة أخرى..."
+            "تحقق من اتصال الإنترنت أو عنوان API"
         )
         return
     
     await status_msg.edit_text(format_status_message(data))
-    await start_fast_monitoring(update, context, data)
+    await start_monitoring(update, context, data)
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /stop command"""
@@ -158,7 +141,7 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if jobs:
         for job in jobs:
             job.schedule_removal()
-        await update.message.reply_text("✅ تم إيقاف المراقبة السريعة")
+        await update.message.reply_text("✅ تم إيقاف المراقبة")
     else:
         await update.message.reply_text("❌ المراقبة غير مفعلة حالياً")
 
@@ -171,7 +154,10 @@ def format_status_message(data: dict) -> str:
         electricity_time_str = "الكهرباء متوفرة الآن"
     else:
         electricity_status = "منقطعة ⚠️"
-        electricity_time_str = f"آخر مرة: {last_electricity_time.strftime('%I:%M %p')}" if last_electricity_time else "غير معلوم"
+        if last_electricity_time:
+            electricity_time_str = f"آخر مرة: {last_electricity_time.strftime('%I:%M %p')}"
+        else:
+            electricity_time_str = "غير معلوم"
     
     return (
         f"🔋 البطارية: {data['battery']:.0f}%\n"
@@ -182,104 +168,124 @@ def format_status_message(data: dict) -> str:
         f"🕐 {electricity_time_str}"
     )
 
-# ============================== FAST MONITORING SYSTEM ============================== #
-async def start_fast_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, initial_data: dict):
-    """Start high-frequency monitoring for immediate alerts"""
+# ============================== MONITORING SYSTEM ============================== #
+async def start_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, initial_data: dict):
+    """Start monitoring for changes"""
     chat_id = update.effective_chat.id
     
     # Remove any existing jobs
     for job in context.job_queue.get_jobs_by_name(str(chat_id)):
         job.schedule_removal()
     
-    # Start fast monitoring (every 5 seconds)
+    # Start monitoring
     context.job_queue.run_repeating(
-        fast_monitor_changes,
+        monitor_changes,
         interval=MONITORING_INTERVAL,
-        first=2,  # Start checking after 2 seconds
+        first=MONITORING_INTERVAL,  # Start checking after interval
         chat_id=chat_id,
         name=str(chat_id),
         data=initial_data
     )
     
-    await update.message.reply_text("🚀 بدء المراقبة السريعة (كل 5 ثواني)")
+    await update.message.reply_text(f"🚀 بدء المراقبة (كل {MONITORING_INTERVAL} ثانية)")
 
-async def fast_monitor_changes(context: ContextTypes.DEFAULT_TYPE):
-    """Fast monitoring with immediate alerts"""
+async def monitor_changes(context: ContextTypes.DEFAULT_TYPE):
+    """Monitor for system changes and send alerts"""
     global last_power_usage, fridge_warning_sent
 
     old_data = context.job.data
-    new_data = await get_system_data_async()
+    
+    # Get new data in executor to avoid blocking
+    loop = asyncio.get_event_loop()
+    new_data = await loop.run_in_executor(None, get_system_data)
 
     if not new_data:
-        # If API fails, try one more time immediately
-        await asyncio.sleep(1)
-        new_data = await get_system_data_async()
-        if not new_data:
-            return
+        print("فشل في الحصول على البيانات - تخطي هذه الدورة")
+        return
 
     # If this is the first run, just store data
     if not old_data:
         context.job.data = new_data
+        print(f"✅ أول فحص - تم حفظ البيانات - {datetime.datetime.now().strftime('%H:%M:%S')}")
         return
 
-    # Create alert tasks to run concurrently
-    alert_tasks = []
+    # Check for changes and send alerts
+    alerts_sent = []
 
-    # Power usage alerts (immediate)
-    if new_data['power_usage'] > POWER_THRESHOLDS[1] and last_power_usage is None:
-        alert_tasks.append(send_instant_alert(context, f"⚠️ استهلاك عالي: {new_data['power_usage']:.0f}W"))
-        last_power_usage = new_data['power_usage']
-    elif new_data['power_usage'] <= POWER_THRESHOLDS[1] and old_data.get('power_usage', 0) > POWER_THRESHOLDS[1]:
-        alert_tasks.append(send_instant_alert(context, f"✅ انخفض الاستهلاك: {new_data['power_usage']:.0f}W"))
-        last_power_usage = None
+    # Power usage alerts
+    if (new_data['power_usage'] > POWER_THRESHOLDS[1] and 
+        old_data.get('power_usage', 0) <= POWER_THRESHOLDS[1]):
+        alert_msg = f"⚠️ استهلاك عالي: {new_data['power_usage']:.0f}W"
+        await send_alert(context, alert_msg)
+        alerts_sent.append("high_power")
+        
+    elif (new_data['power_usage'] <= POWER_THRESHOLDS[1] and 
+          old_data.get('power_usage', 0) > POWER_THRESHOLDS[1]):
+        alert_msg = f"✅ انخفض الاستهلاك: {new_data['power_usage']:.0f}W"
+        await send_alert(context, alert_msg)
+        alerts_sent.append("normal_power")
 
-    # Electricity status (immediate)
+    # Electricity status changes
     if old_data.get('charging', False) != new_data['charging']:
         if new_data['charging']:
-            alert_tasks.append(send_instant_alert(context, f"⚡ عادت الكهرباء! البطارية: {new_data['battery']:.0f}%"))
-            fridge_warning_sent = False
+            alert_msg = f"⚡ عادت الكهرباء! البطارية: {new_data['battery']:.0f}%"
+            fridge_warning_sent = False  # Reset fridge warning
         else:
-            alert_tasks.append(send_instant_alert(context, f"🔋 انقطعت الكهرباء! البطارية: {new_data['battery']:.0f}%"))
+            alert_msg = f"🔋 انقطعت الكهرباء! البطارية: {new_data['battery']:.0f}%"
+        
+        await send_alert(context, alert_msg)
+        alerts_sent.append("electricity_change")
 
-    # Fridge warning (immediate)
+    # Fridge warning
     if (not new_data['charging'] and 
         new_data['battery'] <= FRIDGE_WARNING_THRESHOLD and 
         new_data['battery'] > FRIDGE_ACTIVATION_THRESHOLD and 
         not fridge_warning_sent):
+        
         remaining = new_data['battery'] - FRIDGE_ACTIVATION_THRESHOLD
-        alert_tasks.append(send_instant_alert(context, f"🧊⚠️ البراد سينطفئ خلال {remaining:.0f}%!"))
+        alert_msg = f"🧊⚠️ البراد سينطفئ خلال {remaining:.0f}%!"
+        await send_alert(context, alert_msg)
         fridge_warning_sent = True
+        alerts_sent.append("fridge_warning")
 
-    # Reset fridge warning
+    # Reset fridge warning when appropriate
     if (new_data['battery'] > FRIDGE_WARNING_THRESHOLD or 
-        new_data['battery'] <= FRIDGE_ACTIVATION_THRESHOLD):
+        new_data['battery'] <= FRIDGE_ACTIVATION_THRESHOLD or
+        new_data['charging']):
         fridge_warning_sent = False
 
-    # Battery level changes (immediate)
-    if 'battery' in old_data and abs(new_data['battery'] - old_data['battery']) >= BATTERY_CHANGE_THRESHOLD:
+    # Battery level changes (significant changes only)
+    battery_diff = abs(new_data['battery'] - old_data.get('battery', 0))
+    if battery_diff >= BATTERY_CHANGE_THRESHOLD:
         arrow = "⬆️" if new_data['battery'] > old_data['battery'] else "⬇️"
-        alert_tasks.append(send_instant_alert(context, f"{arrow} البطارية: {old_data['battery']:.0f}% → {new_data['battery']:.0f}%"))
+        alert_msg = f"{arrow} البطارية: {old_data['battery']:.0f}% → {new_data['battery']:.0f}%"
+        await send_alert(context, alert_msg)
+        alerts_sent.append("battery_change")
 
-    # Send all alerts concurrently for maximum speed
-    if alert_tasks:
-        await asyncio.gather(*alert_tasks, return_exceptions=True)
-
+    # Update stored data
     context.job.data = new_data
+    
+    # Log monitoring activity
+    status = f"فحص مكتمل - {datetime.datetime.now().strftime('%H:%M:%S')}"
+    if alerts_sent:
+        status += f" - تنبيهات: {len(alerts_sent)}"
+    print(f"✅ {status}")
 
-async def send_instant_alert(context: ContextTypes.DEFAULT_TYPE, message: str):
-    """Send alert immediately without delay"""
+async def send_alert(context: ContextTypes.DEFAULT_TYPE, message: str):
+    """Send alert message"""
     try:
         await context.bot.send_message(
             chat_id=context.job.chat_id, 
             text=message,
-            disable_notification=False  # Ensure notifications are enabled
+            disable_notification=False
         )
+        print(f"📤 تم إرسال تنبيه: {message}")
     except Exception as e:
-        print(f"فشل إرسال التنبيه السريع: {e}")
+        print(f"فشل إرسال التنبيه: {e}")
 
 # ============================== HELPER FUNCTIONS ============================== #
 def get_charge_status(current: float) -> str:
-    """Get charging status - optimized"""
+    """Get charging status"""
     if current >= 60:
         return f"{current:.1f}A سريع جداً 🔴"
     elif current >= 30:
@@ -289,7 +295,7 @@ def get_charge_status(current: float) -> str:
     return f"{current:.1f}A متوقف ⚪"
 
 def get_fridge_status(data: dict) -> str:
-    """Get fridge status - optimized"""
+    """Get fridge status"""
     if data['charging']:
         return "يعمل على الكهرباء ⚡"
     elif data['battery'] > FRIDGE_ACTIVATION_THRESHOLD:
@@ -299,7 +305,7 @@ def get_fridge_status(data: dict) -> str:
     return "مطفئ ⛔"
 
 def get_power_status(power: float) -> str:
-    """Get power consumption status - optimized"""
+    """Get power consumption status"""
     if power <= POWER_THRESHOLDS[0]:
         return "عادي 🟢"
     elif power <= POWER_THRESHOLDS[1]:
@@ -319,26 +325,31 @@ async def update_api_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     
     new_url = context.args[0]
+    old_url = API_URL
     API_URL = new_url
     
-    # Test immediately
+    # Test the new URL
     test_msg = await update.message.reply_text("⏳ اختبار العنوان الجديد...")
-    data = await get_system_data_async()
+    
+    loop = asyncio.get_event_loop()
+    data = await loop.run_in_executor(None, get_system_data)
     
     if data:
         await test_msg.edit_text("✅ تم تحديث API بنجاح!")
+        print(f"API URL updated: {old_url} -> {new_url}")
     else:
-        await test_msg.edit_text("⚠️ العنوان لا يعمل، تحقق منه")
+        API_URL = old_url  # Restore old URL
+        await test_msg.edit_text("⚠️ العنوان الجديد لا يعمل، تم الاحتفاظ بالعنوان القديم")
 
 # ============================== MAIN EXECUTION ============================== #
 def main():
-    """Initialize and start the optimized bot"""
+    """Initialize and start the bot"""
     if not TOKEN:
         print("❌ خطأ: TELEGRAM_TOKEN غير محدد")
         return
         
     try:
-        print("🚀 بدء تشغيل البوت السريع...")
+        print("🚀 بدء تشغيل البوت...")
         
         bot = ApplicationBuilder().token(TOKEN).build()
         
@@ -348,23 +359,20 @@ def main():
         bot.add_handler(CommandHandler("stop", stop_command))
         bot.add_handler(CommandHandler("update_api", update_api_command))
         
-        print("✅ البوت السريع جاهز للعمل...")
+        print("✅ البوت جاهز للعمل...")
+        print(f"📡 API URL: {API_URL or 'غير محدد'}")
         
-        # Start with optimizations
+        # Start the bot
         bot.run_polling(
             drop_pending_updates=True,
-            allowed_updates=['message', 'callback_query']  # Only process needed updates
+            allowed_updates=['message']
         )
         
+    except KeyboardInterrupt:
+        print("\n🛑 تم إيقاف البوت بواسطة المستخدم")
     except Exception as e:
         print(f"❌ خطأ في تشغيل البوت: {e}")
         raise e
-    finally:
-        # Cleanup
-        try:
-            asyncio.run(close_api_session())
-        except:
-            pass
 
 if __name__ == "__main__":
     main()
