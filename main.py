@@ -29,18 +29,28 @@ last_electricity_time = None  # To track when electricity was last available
 electricity_start_time = None  # To track when electricity started
 fridge_warning_sent = False  # To track if fridge warning has been sent
 admin_chat_id = None  # To store admin's chat ID for notifications
+last_api_data = None  # Cache for last successful data
+last_api_time = None  # Time of last successful API call
+user_last_request = {}  # Track user requests to prevent spam
 
 # ============================== DATA FETCHING ============================== #
 def get_system_data():
-    """Get power system data from API"""
-    global last_electricity_time, electricity_start_time
+    """Get power system data from API with improved caching and error handling"""
+    global last_electricity_time, electricity_start_time, last_api_data, last_api_time
     
     if not API_URL:
         print("خطأ: عنوان API غير محدد")
-        return None
+        return last_api_data  # Return cached data if available
+    
+    # If we have recent data (less than 5 seconds old), return cached data
+    current_time = datetime.datetime.now()
+    if (last_api_data and last_api_time and 
+        (current_time - last_api_time).seconds < 5):
+        print("استخدام البيانات المخزنة (أحدث من 5 ثواني)")
+        return last_api_data
     
     try:
-        response = requests.get(API_URL, timeout=3)  # Changed to 3 seconds
+        response = requests.get(API_URL, timeout=5)  # Increased to 5 seconds
         if response.status_code == 200:
             data = response.json()
             params = {item['par']: item['val'] for item in data['dat']['parameter']}
@@ -62,12 +72,29 @@ def get_system_data():
                 last_electricity_time = datetime.datetime.now(TIMEZONE)
             else:
                 electricity_start_time = None
-                
+            
+            # Cache the successful data
+            last_api_data = system_data
+            last_api_time = current_time
+            print("✅ تم الحصول على بيانات جديدة من API")
             return system_data
-        return None
+            
+        else:
+            print(f"API returned status code: {response.status_code}")
+            
+    except requests.exceptions.Timeout:
+        print("API timeout - استخدام البيانات المخزنة")
+    except requests.exceptions.ConnectionError:
+        print("Connection error - استخدام البيانات المخزنة") 
     except Exception as e:
-        print(f"خطأ في الاتصال: {str(e)}")
-        return None
+        print(f"خطأ في الاتصال: {str(e)} - استخدام البيانات المخزنة")
+    
+    # Return cached data if available, even if API failed
+    if last_api_data:
+        print("📦 استخدام البيانات المخزنة بسبب فشل API")
+        return last_api_data
+    
+    return None
 
 # ============================== TELEGRAM COMMANDS ============================== #
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -87,10 +114,23 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /battery command - show status and start monitoring"""
-    global admin_chat_id
+    global admin_chat_id, user_last_request
     
     # Save the user's chat ID as admin
     admin_chat_id = update.effective_chat.id
+    user_id = update.effective_user.id
+    
+    # Rate limiting: prevent spam requests (max 1 request per 3 seconds per user)
+    current_time = datetime.datetime.now()
+    if user_id in user_last_request:
+        time_diff = (current_time - user_last_request[user_id]).seconds
+        if time_diff < 3:
+            await update.message.reply_text(
+                f"⏳ انتظر {3 - time_diff} ثانية قبل الطلب مرة أخرى"
+            )
+            return
+    
+    user_last_request[user_id] = current_time
     
     # Send immediate response to user
     status_msg = await update.message.reply_text("⏳ جاري الحصول على البيانات...")
@@ -100,8 +140,18 @@ async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = await loop.run_in_executor(None, get_system_data)
     
     if not data:
-        await status_msg.edit_text("⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة")
-        return
+        await status_msg.edit_text(
+            "⚠️ تعذر الحصول على البيانات الحالية\n"
+            "جاري المحاولة مرة أخرى خلال ثوان..."
+        )
+        
+        # Try once more after a brief delay
+        await asyncio.sleep(2)
+        data = await loop.run_in_executor(None, get_system_data)
+        
+        if not data:
+            await status_msg.edit_text("⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة")
+            return
     
     # Update the message with actual data
     await edit_status_message(status_msg, data)
@@ -201,11 +251,13 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
     new_data = await loop.run_in_executor(None, get_system_data)
 
     if not new_data:
+        print("📡 فشل في الحصول على البيانات - تخطي هذه الدورة")
         return
     
     # If this is the first run, just store the data and return
     if not old_data:
         context.job.data = new_data
+        print(f"✅ أول فحص - تم حفظ البيانات - {datetime.datetime.now().strftime('%H:%M:%S')}")
         return
     
     # Check power usage changes
@@ -242,6 +294,7 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
         await send_battery_alert(context, old_data['battery'], new_data['battery'])
 
     context.job.data = new_data
+    print(f"🔄 فحص مكتمل - {datetime.datetime.now().strftime('%H:%M:%S')}")
 
 # ============================== ALERT MESSAGES ============================== #
 async def send_power_alert(context: ContextTypes.DEFAULT_TYPE, power_usage: float):
@@ -346,7 +399,7 @@ def get_consumption_status(power: float) -> str:
 # ============================== API URL UPDATE COMMAND ============================== #
 async def update_api_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /update_api command - update the API URL"""
-    global API_URL
+    global API_URL, last_api_data, last_api_time
     
     # Check if a URL was provided
     if not context.args or len(context.args) < 1:
@@ -356,9 +409,12 @@ async def update_api_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
     
-    # Update the API URL
+    # Update the API URL and clear cache
     new_url = context.args[0]
+    old_url = API_URL
     API_URL = new_url
+    last_api_data = None  # Clear cache to force new request
+    last_api_time = None
     
     # Send immediate response and test the new URL
     test_msg = await update.message.reply_text("⏳ اختبار العنوان الجديد...")
@@ -369,9 +425,12 @@ async def update_api_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     if data:
         await test_msg.edit_text(f"✅ تم تحديث عنوان API بنجاح وتم التحقق من صحته!")
+        print(f"API URL updated successfully: {old_url} -> {new_url}")
     else:
+        # Restore old URL if new one doesn't work
+        API_URL = old_url
         await test_msg.edit_text(
-            f"⚠️ تم تحديث عنوان API، ولكن يبدو أنه لا يعمل بشكل صحيح.\n"
+            f"⚠️ العنوان الجديد لا يعمل، تم الاحتفاظ بالعنوان القديم.\n"
             f"يرجى التحقق من العنوان والمحاولة مرة أخرى."
         )
 
