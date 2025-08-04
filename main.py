@@ -18,7 +18,7 @@ except ImportError:
 TIMEZONE = pytz.timezone('Asia/Damascus')
 
 # Thresholds
-BATTERY_CHANGE_THRESHOLD = 3   # Battery change percentage that triggers alert
+BATTERY_CHANGE_THRESHOLD = 10   # Battery change percentage that triggers alert
 FRIDGE_ACTIVATION_THRESHOLD = 50  # Battery percentage needed for fridge
 FRIDGE_WARNING_THRESHOLD = 53     # Battery percentage to warn about fridge shutdown
 POWER_THRESHOLDS = (500, 850)  # Power thresholds (normal, medium, high) in watts
@@ -27,6 +27,7 @@ POWER_THRESHOLDS = (500, 850)  # Power thresholds (normal, medium, high) in watt
 last_power_usage = None  # To track power usage for alerts
 last_electricity_time = None  # To track when electricity was last available
 electricity_start_time = None  # To track when electricity started
+electricity_duration = None  # To store the duration of last electricity session
 fridge_warning_sent = False  # To track if fridge warning has been sent
 admin_chat_id = None  # To store admin's chat ID for notifications
 last_api_data = None  # Cache for last successful data
@@ -36,7 +37,7 @@ user_last_request = {}  # Track user requests to prevent spam
 # ============================== DATA FETCHING ============================== #
 def get_system_data():
     """Get power system data from API with improved caching and error handling"""
-    global last_electricity_time, electricity_start_time, last_api_data, last_api_time
+    global last_electricity_time, electricity_start_time, electricity_duration
     
     if not API_URL:
         print("خطأ: عنوان API غير محدد")
@@ -66,11 +67,16 @@ def get_system_data():
             }
             
             # Update electricity tracking with correct timezone
+            current_time_tz = datetime.datetime.now(TIMEZONE)
+            
             if system_data['charging']:
                 if electricity_start_time is None:
-                    electricity_start_time = datetime.datetime.now(TIMEZONE)
-                last_electricity_time = datetime.datetime.now(TIMEZONE)
+                    electricity_start_time = current_time_tz
+                last_electricity_time = current_time_tz
             else:
+                # If electricity just stopped, calculate duration
+                if electricity_start_time is not None and last_electricity_time is not None:
+                    electricity_duration = last_electricity_time - electricity_start_time
                 electricity_start_time = None
             
             # Cache the successful data
@@ -95,6 +101,35 @@ def get_system_data():
         return last_api_data
     
     return None
+
+def format_duration(duration):
+    """Format duration into readable Arabic text"""
+    if duration is None:
+        return ""
+    
+    total_seconds = int(duration.total_seconds())
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+    
+    duration_parts = []
+    
+    if hours > 0:
+        hour_text = "ساعة" if hours == 1 else f"{hours} ساعات" if hours <= 10 else f"{hours} ساعة"
+        duration_parts.append(hour_text)
+    
+    if minutes > 0:
+        minute_text = "دقيقة" if minutes == 1 else f"{minutes} دقائق" if minutes <= 10 else f"{minutes} دقيقة"
+        duration_parts.append(minute_text)
+    
+    if seconds > 0 and hours == 0:  # Only show seconds if less than an hour
+        second_text = "ثانية" if seconds == 1 else f"{seconds} ثواني" if seconds <= 10 else f"{seconds} ثانية"
+        duration_parts.append(second_text)
+    
+    if not duration_parts:
+        return "أقل من ثانية"
+    
+    return " و ".join(duration_parts)
 
 # ============================== TELEGRAM COMMANDS ============================== #
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -178,7 +213,7 @@ async def send_error_message(update: Update):
 
 async def send_status_message(update: Update, data: dict):
     """Format and send current system status"""
-    global last_electricity_time
+    global last_electricity_time, electricity_duration
     
     # Format the electricity time string with 12-hour format
     if data['charging']:
@@ -186,7 +221,13 @@ async def send_status_message(update: Update, data: dict):
         electricity_time_str = "الكهرباء متوفرة حالياً"
     else:
         electricity_status = "لا يوجد كهرباء ⚠️"
-        electricity_time_str = f"{last_electricity_time.strftime('%I:%M:%S %p')}" if last_electricity_time else "غير معلوم 🤷"
+        if last_electricity_time:
+            electricity_time_str = f"{last_electricity_time.strftime('%I:%M:%S %p')}"
+            if electricity_duration:
+                duration_str = format_duration(electricity_duration)
+                electricity_time_str += f"\nوقد بقيت الكهرباء لمدة {duration_str}"
+        else:
+            electricity_time_str = "غير معلوم 🤷"
     
     message = (
         f"🔋 شحن البطارية: {data['battery']:.0f}%\n"
@@ -201,7 +242,7 @@ async def send_status_message(update: Update, data: dict):
 
 async def edit_status_message(message, data: dict):
     """Format and edit existing message with system status"""
-    global last_electricity_time
+    global last_electricity_time, electricity_duration
     
     # Format the electricity time string with 12-hour format
     if data['charging']:
@@ -209,7 +250,13 @@ async def edit_status_message(message, data: dict):
         electricity_time_str = "الكهرباء متوفرة حالياً"
     else:
         electricity_status = "لا يوجد كهرباء ⚠️"
-        electricity_time_str = f"{last_electricity_time.strftime('%I:%M:%S %p')}" if last_electricity_time else "غير معلوم 🤷"
+        if last_electricity_time:
+            electricity_time_str = f"{last_electricity_time.strftime('%I:%M:%S %p')}"
+            if electricity_duration:
+                duration_str = format_duration(electricity_duration)
+                electricity_time_str += f"\nوقد بقيت الكهرباء لمدة {duration_str}"
+        else:
+            electricity_time_str = "غير معلوم 🤷"
     
     status_text = (
         f"🔋 شحن البطارية: {data['battery']:.0f}%\n"
@@ -315,7 +362,7 @@ async def send_power_reduced_alert(context: ContextTypes.DEFAULT_TYPE, power_usa
 
 async def send_electricity_alert(context: ContextTypes.DEFAULT_TYPE, is_charging: bool, battery_level: float):
     """Send alert when electricity status changes, including battery level"""
-    global last_electricity_time, electricity_start_time
+    global last_electricity_time, electricity_start_time, electricity_duration
     
     current_time = datetime.datetime.now(TIMEZONE)
     
@@ -329,14 +376,22 @@ async def send_electricity_alert(context: ContextTypes.DEFAULT_TYPE, is_charging
             f"نسبة البطارية حالياً هي: {battery_level:.0f}%"
         )
     else:
-        # Record the last time electricity was available
+        # Record the last time electricity was available and calculate duration
         if electricity_start_time is not None:
             last_electricity_time = current_time
-        
-        message = (
-            f"⚠️ انقطعت الكهرباء! يتم التشغيل على البطارية.\n"
-            f"نسبة البطارية حالياً هي: {battery_level:.0f}%"
-        )
+            electricity_duration = last_electricity_time - electricity_start_time
+            duration_str = format_duration(electricity_duration)
+            
+            message = (
+                f"⚠️ انقطعت الكهرباء! يتم التشغيل على البطارية.\n"
+                f"نسبة البطارية حالياً هي: {battery_level:.0f}%\n"
+                f"مدة بقاء الكهرباء: {duration_str}"
+            )
+        else:
+            message = (
+                f"⚠️ انقطعت الكهرباء! يتم التشغيل على البطارية.\n"
+                f"نسبة البطارية حالياً هي: {battery_level:.0f}%"
+            )
     
     try:
         await context.bot.send_message(chat_id=context.job.chat_id, text=message)
