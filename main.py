@@ -37,7 +37,7 @@ user_last_request = {}  # Track user requests to prevent spam
 # ============================== DATA FETCHING ============================== #
 def get_system_data():
     """Get power system data from API with improved caching and error handling"""
-    global last_electricity_time, electricity_start_time, electricity_duration
+    global last_electricity_time, electricity_start_time, electricity_duration, last_api_data, last_api_time
     
     if not API_URL:
         print("خطأ: عنوان API غير محدد")
