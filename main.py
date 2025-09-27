@@ -46,9 +46,9 @@ def get_system_data():
     # If we have recent data (less than 5 seconds old), return cached data
     current_time = datetime.datetime.now()
     if (last_api_data and last_api_time and 
-        (current_time - last_api_time).seconds < 5):
-        print("استخدام البيانات المخزنة (أحدث من 5 ثواني)")
-        return last_api_data
+        (current_time - last_api_time).seconds < 3):
+        print("استخدام البيانات المخزنة (أحدث من 3 ثواني)")
+        return last_api_dataa
     
     try:
         response = requests.get(API_URL, timeout=5)  # Increased to 5 seconds
@@ -298,7 +298,11 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
     new_data = await loop.run_in_executor(None, get_system_data)
 
     if not new_data:
-        print("📡 فشل في الحصول على البيانات - تخطي هذه الدورة")
+        print("📡 فشل في الحصول على البيانات - إرسال تنبيه")
+        await context.bot.send_message(
+            chat_id=context.job.chat_id, 
+            text="⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة"
+        )
         return
     
     # If this is the first run, just store the data and return
