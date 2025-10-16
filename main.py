@@ -30,28 +30,21 @@ electricity_start_time = None  # To track when electricity started
 electricity_duration = None  # To store the duration of last electricity session
 fridge_warning_sent = False  # To track if fridge warning has been sent
 admin_chat_id = None  # To store admin's chat ID for notifications
-last_api_data = None  # Cache for last successful data
-last_api_time = None  # Time of last successful API call
 user_last_request = {}  # Track user requests to prevent spam
 
 # ============================== DATA FETCHING ============================== #
 def get_system_data():
-    """Get power system data from API with improved caching and error handling"""
-    global last_electricity_time, electricity_start_time, electricity_duration, last_api_data, last_api_time
+    """Get power system data from API - NO CACHING, always fetch fresh data"""
+    global last_electricity_time, electricity_start_time, electricity_duration
     
     if not API_URL:
-        print("خطأ: عنوان API غير محدد")
-        return last_api_data  # Return cached data if available
-    
-    # If we have recent data (less than 5 seconds old), return cached data
-    current_time = datetime.datetime.now()
-    if (last_api_data and last_api_time and 
-        (current_time - last_api_time).seconds < 3):
-        print("استخدام البيانات المخزنة (أحدث من 3 ثواني)")
-        return last_api_dataa
+        print("❌ خطأ: عنوان API غير محدد")
+        return None
     
     try:
-        response = requests.get(API_URL, timeout=5)  # Increased to 5 seconds
+        print(f"🔄 محاولة الاتصال بـ API... {datetime.datetime.now().strftime('%H:%M:%S')}")
+        response = requests.get(API_URL, timeout=10)
+        
         if response.status_code == 200:
             data = response.json()
             params = {item['par']: item['val'] for item in data['dat']['parameter']}
@@ -79,28 +72,22 @@ def get_system_data():
                     electricity_duration = last_electricity_time - electricity_start_time
                 electricity_start_time = None
             
-            # Cache the successful data
-            last_api_data = system_data
-            last_api_time = current_time
-            print("✅ تم الحصول على بيانات جديدة من API")
+            print("✅ تم الحصول على بيانات جديدة من API بنجاح")
             return system_data
             
         else:
-            print(f"API returned status code: {response.status_code}")
+            print(f"❌ API returned status code: {response.status_code}")
+            return None
             
     except requests.exceptions.Timeout:
-        print("API timeout - استخدام البيانات المخزنة")
+        print("❌ API timeout - انتهت مهلة الاتصال")
+        return None
     except requests.exceptions.ConnectionError:
-        print("Connection error - استخدام البيانات المخزنة") 
+        print("❌ Connection error - خطأ في الاتصال") 
+        return None
     except Exception as e:
-        print(f"خطأ في الاتصال: {str(e)} - استخدام البيانات المخزنة")
-    
-    # Return cached data if available, even if API failed
-    if last_api_data:
-        print("📦 استخدام البيانات المخزنة بسبب فشل API")
-        return last_api_data
-    
-    return None
+        print(f"❌ خطأ في الاتصال بـ API: {str(e)}")
+        return None
 
 def format_duration(duration):
     """Format duration into readable Arabic text"""
@@ -176,17 +163,9 @@ async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not data:
         await status_msg.edit_text(
-            "⚠️ تعذر الحصول على البيانات الحالية\n"
-            "جاري المحاولة مرة أخرى خلال ثوان..."
+            ""⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة""
         )
-        
-        # Try once more after a brief delay
-        await asyncio.sleep(2)
-        data = await loop.run_in_executor(None, get_system_data)
-        
-        if not data:
-            await status_msg.edit_text("⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة")
-            return
+        return
     
     # Update the message with actual data
     await edit_status_message(status_msg, data)
@@ -203,42 +182,6 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ تم إيقاف المراقبة التلقائية بنجاح.")
     else:
         await update.message.reply_text("❌ المراقبة التلقائية غير مفعلة حالياً.")
-
-async def send_error_message(update: Update):
-    """Send error message when data fetching fails"""
-    await update.message.reply_photo(
-        photo="https://i.ibb.co/Sd57f0d/Whats-App-Image-2025-01-20-at-23-04-54-515fe6e6.jpg",
-        caption="⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة"
-    )
-
-async def send_status_message(update: Update, data: dict):
-    """Format and send current system status"""
-    global last_electricity_time, electricity_duration
-    
-    # Format the electricity time string with 12-hour format
-    if data['charging']:
-        electricity_status = "موجودة ويتم الشحن✔️"
-        electricity_time_str = "الكهرباء متوفرة حالياً"
-    else:
-        electricity_status = "لا يوجد كهرباء ⚠️"
-        if last_electricity_time:
-            electricity_time_str = f"{last_electricity_time.strftime('%I:%M:%S %p')}"
-            if electricity_duration:
-                duration_str = format_duration(electricity_duration)
-                electricity_time_str += f"\nوقد بقيت الكهرباء لمدة {duration_str}"
-        else:
-            electricity_time_str = "غير معلوم 🤷"
-    
-    message = (
-        f"🔋 شحن البطارية: {data['battery']:.0f}%\n"
-        f"⚡ فولت الكهرباء: {data['voltage']:.2f}V\n"
-        f"🔌 الكهرباء: {electricity_status}\n"
-        f"⚙️ استهلاك البطارية: {data['power_usage']:.0f}W ({get_consumption_status(data['power_usage'])})\n"
-        f"🔌 تيار الشحن: {get_charging_status(data['charge_current'])}\n"
-        f"🧊 حالة البراد: {get_fridge_status(data)}\n"
-        f"⏱️ اخر توقيت لوجود الكهرباء: {electricity_time_str}"
-    )
-    await update.message.reply_text(message)
 
 async def edit_status_message(message, data: dict):
     """Format and edit existing message with system status"""
@@ -458,39 +401,42 @@ def get_consumption_status(power: float) -> str:
 # ============================== API URL UPDATE COMMAND ============================== #
 async def update_api_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /update_api command - update the API URL"""
-    global API_URL, last_api_data, last_api_time
+    global API_URL
     
     # Check if a URL was provided
     if not context.args or len(context.args) < 1:
         await update.message.reply_text(
-            "❌ يرجى توفير عنوان API الجديد بعد الأمر.\n"
-            "مثال: /update_api https://example.com/api/new_url"
+            "❌ يرجى توفير عنوان API الجديد بعد الأمر.\n\n"
+            "مثال:\n"
+            "/update_api https://web.dessmonitor.com/public/?sign=..."
         )
         return
     
-    # Update the API URL and clear cache
+    # Update the API URL
     new_url = context.args[0]
     old_url = API_URL
     API_URL = new_url
-    last_api_data = None  # Clear cache to force new request
-    last_api_time = None
     
     # Send immediate response and test the new URL
-    test_msg = await update.message.reply_text("⏳ اختبار العنوان الجديد...")
+    test_msg = await update.message.reply_text("⏳ اختبار الرابط الجديد...")
     
     # Test the new URL asynchronously
     loop = asyncio.get_event_loop()
     data = await loop.run_in_executor(None, get_system_data)
     
     if data:
-        await test_msg.edit_text(f"✅ تم تحديث عنوان API بنجاح وتم التحقق من صحته!")
-        print(f"API URL updated successfully: {old_url} -> {new_url}")
+        await test_msg.edit_text(
+            f"✅ تم تحديث رابط API بنجاح!\n\n"
+            f"يمكنك الآن استخدام /battery لعرض الحالة وبدء المراقبة"
+        )
+        print(f"✅ API URL updated: {old_url} -> {new_url}")
     else:
         # Restore old URL if new one doesn't work
         API_URL = old_url
         await test_msg.edit_text(
-            f"⚠️ العنوان الجديد لا يعمل، تم الاحتفاظ بالعنوان القديم.\n"
-            f"يرجى التحقق من العنوان والمحاولة مرة أخرى."
+            f"❌ الرابط الجديد لا يعمل!\n\n"
+            f"تم الاحتفاظ بالرابط القديم.\n"
+            f"يرجى التحقق من الرابط والمحاولة مرة أخرى."
         )
 
 # ============================== MAIN EXECUTION ============================== #
