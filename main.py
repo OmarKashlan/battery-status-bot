@@ -31,6 +31,8 @@ electricity_duration = None  # To store the duration of last electricity session
 fridge_warning_sent = False  # To track if fridge warning has been sent
 admin_chat_id = None  # To store admin's chat ID for notifications
 user_last_request = {}  # Track user requests to prevent spam
+api_failure_notified = False  # Track if we already sent API failure notification
+last_api_failure_time = None  # Track when API last failed
 
 # ============================== DATA FETCHING ============================== #
 def get_system_data():
@@ -136,7 +138,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /battery command - show status and start monitoring"""
-    global admin_chat_id, user_last_request
+    global admin_chat_id, user_last_request, api_failure_notified
     
     # Save the user's chat ID as admin
     admin_chat_id = update.effective_chat.id
@@ -166,6 +168,9 @@ async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة"
         )
         return
+    
+    # Reset API failure flag if we got data successfully
+    api_failure_notified = False
     
     # Update the message with actual data
     await edit_status_message(status_msg, data)
@@ -220,6 +225,10 @@ def start_auto_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, in
     for job in context.job_queue.get_jobs_by_name(str(chat_id)):
         job.schedule_removal()
     
+    # Remove any existing reminder jobs
+    for job in context.job_queue.get_jobs_by_name(f"{chat_id}_reminder"):
+        job.schedule_removal()
+    
     # Add new job to check for changes every 10 seconds
     context.job_queue.run_repeating(
         check_for_changes,
@@ -232,7 +241,7 @@ def start_auto_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, in
 
 async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
     """Check for important changes in system status"""
-    global last_power_usage, fridge_warning_sent
+    global last_power_usage, fridge_warning_sent, api_failure_notified, last_api_failure_time
 
     old_data = context.job.data
     
@@ -241,12 +250,33 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
     new_data = await loop.run_in_executor(None, get_system_data)
 
     if not new_data:
-        print("📡 فشل في الحصول على البيانات - إرسال تنبيه")
-        await context.bot.send_message(
-            chat_id=context.job.chat_id, 
-            text="⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة"
-        )
+        print("📡 فشل في الحصول على البيانات")
+        
+        # Send notification only ONCE
+        if not api_failure_notified:
+            await context.bot.send_message(
+                chat_id=context.job.chat_id, 
+                text="⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة"
+            )
+            api_failure_notified = True
+            last_api_failure_time = datetime.datetime.now()
+            
+            # Schedule reminder job every 3 hours
+            context.job_queue.run_repeating(
+                send_api_failure_reminder,
+                interval=10800,  # 3 hours = 10800 seconds
+                first=10800,
+                chat_id=context.job.chat_id,
+                name=f"{context.job.chat_id}_reminder"
+            )
         return
+    
+    # If we got data successfully, reset the failure flag
+    api_failure_notified = False
+    
+    # Remove any active reminder jobs since API is working now
+    for job in context.job_queue.get_jobs_by_name(f"{context.job.chat_id}_reminder"):
+        job.schedule_removal()
     
     # If this is the first run, just store the data and return
     if not old_data:
@@ -289,6 +319,22 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
 
     context.job.data = new_data
     print(f"🔄 فحص مكتمل - {datetime.datetime.now().strftime('%H:%M:%S')}")
+
+async def send_api_failure_reminder(context: ContextTypes.DEFAULT_TYPE):
+    """Send reminder every 3 hours that API is still failing"""
+    global last_api_failure_time
+    
+    if last_api_failure_time:
+        duration = datetime.datetime.now() - last_api_failure_time
+        hours = int(duration.total_seconds() / 3600)
+        
+        await context.bot.send_message(
+            chat_id=context.job.chat_id,
+            text=(
+                f"🔔 تذكير: API لا يزال معطلاً منذ {hours} ساعة\n"
+                "الرجاء الطلب من عمورة تحديث الخدمة"
+            )
+        )
 
 # ============================== ALERT MESSAGES ============================== #
 async def send_power_alert(context: ContextTypes.DEFAULT_TYPE, power_usage: float):
@@ -401,7 +447,7 @@ def get_consumption_status(power: float) -> str:
 # ============================== API URL UPDATE COMMAND ============================== #
 async def update_api_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /update_api command - update the API URL"""
-    global API_URL
+    global API_URL, api_failure_notified, last_api_failure_time
     
     # Check if a URL was provided
     if not context.args or len(context.args) < 1:
@@ -425,6 +471,15 @@ async def update_api_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     data = await loop.run_in_executor(None, get_system_data)
     
     if data:
+        # Cancel all reminder jobs for this user
+        chat_id = update.effective_chat.id
+        for job in context.job_queue.get_jobs_by_name(f"{chat_id}_reminder"):
+            job.schedule_removal()
+        
+        # Reset failure flags
+        api_failure_notified = False
+        last_api_failure_time = None
+        
         await test_msg.edit_text(
             f"✅ تم تحديث رابط API بنجاح!\n\n"
             f"يمكنك الآن استخدام /battery لعرض الحالة وبدء المراقبة"
