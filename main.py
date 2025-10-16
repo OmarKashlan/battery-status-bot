@@ -163,7 +163,7 @@ async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not data:
         await status_msg.edit_text(
-            ""⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة""
+            "⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة"
         )
         return
     
