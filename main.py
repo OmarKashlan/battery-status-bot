@@ -147,12 +147,15 @@ async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Save the user's chat ID as admin
     admin_chat_id = update.effective_chat.id
     
-    # Get data immediately
+    # Send loading message
+    status_msg = await update.message.reply_text("⏳ جاري الحصول على البيانات...")
+    
+    # Get data
     loop = asyncio.get_event_loop()
     data = await loop.run_in_executor(None, get_system_data)
     
     if not data:
-        await update.message.reply_text(
+        await status_msg.edit_text(
             "⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة"
         )
         return
@@ -160,9 +163,9 @@ async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Reset API failure flag if we got data successfully
     api_failure_notified = False
     
-    # Send the data directly
+    # Update message with data
     msg = format_status_message(data)
-    await update.message.reply_text(msg)
+    await status_msg.edit_text(msg)
     start_auto_monitoring(update, context, data)
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
