@@ -32,6 +32,7 @@ fridge_warning_sent = False  # To track if fridge warning has been sent
 admin_chat_id = None  # To store admin's chat ID for notifications
 api_failure_notified = False  # Track if we already sent API failure notification
 last_api_failure_time = None  # Track when API last failed
+consecutive_failures = 0  # Track consecutive API failures
 
 # ============================== DATA FETCHING ============================== #
 def get_system_data():
@@ -142,7 +143,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /battery command - show status and start monitoring"""
-    global admin_chat_id, api_failure_notified
+    global admin_chat_id, api_failure_notified, consecutive_failures
     
     # Save the user's chat ID as admin
     admin_chat_id = update.effective_chat.id
@@ -160,8 +161,9 @@ async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Reset API failure flag if we got data successfully
+    # Reset API failure flags and counters if we got data successfully
     api_failure_notified = False
+    consecutive_failures = 0
     
     # Update message with data
     msg = format_status_message(data)
@@ -233,7 +235,7 @@ def start_auto_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, in
 
 async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
     """Check for important changes in system status"""
-    global last_power_usage, fridge_warning_sent, api_failure_notified, last_api_failure_time
+    global last_power_usage, fridge_warning_sent, api_failure_notified, last_api_failure_time, consecutive_failures
 
     old_data = context.job.data
     
@@ -242,10 +244,11 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
     new_data = await loop.run_in_executor(None, get_system_data)
 
     if not new_data:
-        print("📡 فشل في الحصول على البيانات")
+        consecutive_failures += 1
+        print(f"📡 فشل في الحصول على البيانات (المحاولة {consecutive_failures}/10)")
         
-        # Send notification only ONCE
-        if not api_failure_notified:
+        # Send notification only after 10 consecutive failures
+        if consecutive_failures >= 10 and not api_failure_notified:
             await context.bot.send_message(
                 chat_id=context.job.chat_id, 
                 text="⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة"
@@ -262,11 +265,11 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
                 name=f"{context.job.chat_id}_reminder"
             )
         
-        # Stop the monitoring job
-        context.job.schedule_removal()
+        # Continue monitoring instead of stopping
         return
     
-    # If we got data successfully, reset the failure flag
+    # If we got data successfully, reset the failure counters
+    consecutive_failures = 0
     api_failure_notified = False
     
     # Remove any active reminder jobs since API is working now
@@ -442,7 +445,7 @@ def get_consumption_status(power: float) -> str:
 # ============================== API URL UPDATE COMMAND ============================== #
 async def update_api_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /update_api command - update the API URL"""
-    global API_URL, api_failure_notified, last_api_failure_time
+    global API_URL, api_failure_notified, last_api_failure_time, consecutive_failures
     
     # Check if a URL was provided
     if not context.args or len(context.args) < 1:
@@ -471,9 +474,10 @@ async def update_api_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         for job in context.job_queue.get_jobs_by_name(f"{chat_id}_reminder"):
             job.schedule_removal()
         
-        # Reset failure flags
+        # Reset failure flags and counters
         api_failure_notified = False
         last_api_failure_time = None
+        consecutive_failures = 0
         
         await test_msg.edit_text(
             f"✅ تم تحديث رابط API بنجاح!\n\n"
