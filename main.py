@@ -34,19 +34,29 @@ api_failure_notified = False  # Track if we already sent API failure notificatio
 last_api_failure_time = None  # Track when API last failed
 consecutive_failures = 0  # Track consecutive API failures
 
+# ============================== LOGGING HELPERS ============================== #
+def log_command(command, user_id):
+    print(f"[COMMAND] {command} by user {user_id}")
+
+def log_bot_to_user(user_id, text):
+    print(f"[BOT->USER] To {user_id}: {text}")
+
+def log_api_data(system_data):
+    print(f"[API DATA] {system_data}")
+
 # ============================== DATA FETCHING ============================== #
 def get_system_data():
     """Get power system data from API - NO CACHING, always fetch fresh data"""
     global last_electricity_time, electricity_start_time, electricity_duration
     
     if not API_URL:
-        print("❌ خطأ: عنوان API غير محدد")
+        print("❌ ERROR: API URL is not specified")
         return None
     
     # Try twice with longer timeout
     for attempt in range(2):
         try:
-            print(f"🔄 محاولة الاتصال بـ API... (محاولة {attempt + 1}/2) {datetime.datetime.now().strftime('%H:%M:%S')}")
+            print(f"🔄 Trying to connect to API... (Attempt {attempt + 1}/2) {datetime.datetime.now().strftime('%H:%M:%S')}")
             response = requests.get(API_URL, timeout=15)
             
             if response.status_code == 200:
@@ -76,18 +86,19 @@ def get_system_data():
                         electricity_duration = last_electricity_time - electricity_start_time
                     electricity_start_time = None
                 
-                print("✅ تم الحصول على بيانات جديدة من API بنجاح")
+                print("✅ Successfully fetched new data from API")
+                log_api_data(system_data)
                 return system_data
                 
             else:
                 print(f"❌ API returned status code: {response.status_code}")
                 
         except requests.exceptions.Timeout:
-            print(f"❌ API timeout - المحاولة {attempt + 1}")
+            print(f"❌ API timeout - attempt {attempt + 1}")
         except requests.exceptions.ConnectionError:
-            print(f"❌ Connection error - المحاولة {attempt + 1}") 
+            print(f"❌ Connection error - attempt {attempt + 1}") 
         except Exception as e:
-            print(f"❌ خطأ في الاتصال بـ API: {str(e)} - المحاولة {attempt + 1}")
+            print(f"❌ Error connecting to API: {str(e)} - attempt {attempt + 1}")
         
         # Wait 1 second before retry (only on first attempt)
         if attempt == 0:
@@ -129,64 +140,59 @@ def format_duration(duration):
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start command - initialize the bot and save admin chat ID"""
     global admin_chat_id
-    
-    # Save the user's chat ID as admin
+    log_command("/start", update.effective_chat.id)
     admin_chat_id = update.effective_chat.id
-    
-    await update.message.reply_text(
+    reply = (
         "مرحباً بك في بوت مراقبة نظام الطاقة! 🔋\n\n"
         "الأوامر المتاحة:\n"
         "/battery - عرض حالة النظام وبدء المراقبة التلقائية\n"
         "/stop - إيقاف المراقبة التلقائية\n"
         "/update_api - تحديث عنوان API"
     )
+    log_bot_to_user(update.effective_chat.id, reply)
+    await update.message.reply_text(reply)
 
 async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /battery command - show status and start monitoring"""
     global admin_chat_id, api_failure_notified, consecutive_failures
-    
-    # Save the user's chat ID as admin
+    log_command("/battery", update.effective_chat.id)
     admin_chat_id = update.effective_chat.id
-    
-    # Send loading message
-    status_msg = await update.message.reply_text("⏳ جاري الحصول على البيانات...")
-    
-    # Get data
+    loading = "⏳ جاري الحصول على البيانات..."
+    log_bot_to_user(update.effective_chat.id, loading)
+    status_msg = await update.message.reply_text(loading)
     loop = asyncio.get_event_loop()
     data = await loop.run_in_executor(None, get_system_data)
-    
+    log_api_data(data)
     if not data:
-        await status_msg.edit_text(
-            "⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة"
-        )
+        fail_text = "⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة"
+        log_bot_to_user(update.effective_chat.id, fail_text)
+        await status_msg.edit_text(fail_text)
         return
-    
-    # Reset API failure flags and counters if we got data successfully
     api_failure_notified = False
     consecutive_failures = 0
-    
-    # Update message with data
     msg = format_status_message(data)
+    log_bot_to_user(update.effective_chat.id, msg)
     await status_msg.edit_text(msg)
     start_auto_monitoring(update, context, data)
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /stop command - stop monitoring"""
+    log_command("/stop", update.effective_chat.id)
     chat_id = update.effective_chat.id
     jobs = context.job_queue.get_jobs_by_name(str(chat_id))
-    
     if jobs:
         for job in jobs:
             job.schedule_removal()
-        await update.message.reply_text("✅ تم إيقاف المراقبة التلقائية بنجاح.")
+        msg = "✅ تم إيقاف المراقبة التلقائية بنجاح."
+        log_bot_to_user(update.effective_chat.id, msg)
+        await update.message.reply_text(msg)
     else:
-        await update.message.reply_text("❌ المراقبة التلقائية غير مفعلة حالياً.")
+        msg = "❌ المراقبة التلقائية غير مفعلة حالياً."
+        log_bot_to_user(update.effective_chat.id, msg)
+        await update.message.reply_text(msg)
 
 def format_status_message(data: dict) -> str:
-    """Format system status message"""
     global last_electricity_time, electricity_duration
-    
-    # Format the electricity time string with 12-hour format
     if data['charging']:
         electricity_status = "موجودة ويتم الشحن✔️"
         electricity_time_str = "الكهرباء متوفرة حالياً"
@@ -199,7 +205,6 @@ def format_status_message(data: dict) -> str:
                 electricity_time_str += f"\nوقد بقيت الكهرباء لمدة {duration_str}"
         else:
             electricity_time_str = "غير معلوم 🤷"
-    
     status_text = (
         f"🔋 شحن البطارية: {data['battery']:.0f}%\n"
         f"⚡ فولت الكهرباء: {data['voltage']:.2f}V\n"
@@ -213,17 +218,11 @@ def format_status_message(data: dict) -> str:
 
 # ============================== AUTOMATIC MONITORING ============================== #
 def start_auto_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, initial_data: dict):
-    """Start automatic monitoring job"""
     chat_id = update.effective_chat.id
-    # Remove any existing monitoring jobs
     for job in context.job_queue.get_jobs_by_name(str(chat_id)):
         job.schedule_removal()
-    
-    # Remove any existing reminder jobs
     for job in context.job_queue.get_jobs_by_name(f"{chat_id}_reminder"):
         job.schedule_removal()
-    
-    # Add new job to check for changes every 10 seconds
     context.job_queue.run_repeating(
         check_for_changes,
         interval=10,
@@ -234,29 +233,23 @@ def start_auto_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, in
     )
 
 async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
-    """Check for important changes in system status"""
     global last_power_usage, fridge_warning_sent, api_failure_notified, last_api_failure_time, consecutive_failures
-
     old_data = context.job.data
-    
-    # Get new data asynchronously to avoid blocking
     loop = asyncio.get_event_loop()
     new_data = await loop.run_in_executor(None, get_system_data)
-
+    log_api_data(new_data)
     if not new_data:
         consecutive_failures += 1
-        print(f"📡 فشل في الحصول على البيانات (المحاولة {consecutive_failures}/10)")
-        
-        # Send notification only after 10 consecutive failures
+        print(f"📡 Failed to get data (attempt {consecutive_failures}/10)")
         if consecutive_failures >= 10 and not api_failure_notified:
+            txt = "⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة"
+            log_bot_to_user(context.job.chat_id, txt)
             await context.bot.send_message(
                 chat_id=context.job.chat_id, 
-                text="⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة"
+                text=txt
             )
             api_failure_notified = True
             last_api_failure_time = datetime.datetime.now()
-            
-            # Schedule reminder job every 3 hours
             context.job_queue.run_repeating(
                 send_api_failure_reminder,
                 interval=10800,  # 3 hours = 10800 seconds
@@ -264,24 +257,15 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
                 chat_id=context.job.chat_id,
                 name=f"{context.job.chat_id}_reminder"
             )
-        
-        # Continue monitoring instead of stopping
         return
-    
-    # If we got data successfully, reset the failure counters
     consecutive_failures = 0
     api_failure_notified = False
-    
-    # Remove any active reminder jobs since API is working now
     for job in context.job_queue.get_jobs_by_name(f"{context.job.chat_id}_reminder"):
         job.schedule_removal()
-    
-    # If this is the first run, just store the data and return
     if not old_data:
         context.job.data = new_data
-        print(f"✅ أول فحص - تم حفظ البيانات - {datetime.datetime.now().strftime('%H:%M:%S')}")
+        print(f"✅ First check - data saved - {datetime.datetime.now().strftime('%H:%M:%S')}")
         return
-    
     # Check power usage changes
     if new_data['power_usage'] > POWER_THRESHOLDS[1]:
         if last_power_usage is None:
@@ -290,14 +274,11 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
     elif new_data['power_usage'] <= POWER_THRESHOLDS[1] and old_data.get('power_usage', 0) > POWER_THRESHOLDS[1]:
         await send_power_reduced_alert(context, new_data['power_usage'])
         last_power_usage = None
-
     # Check if electricity status changed
     if old_data.get('charging', False) != new_data['charging']:
         await send_electricity_alert(context, new_data['charging'], new_data['battery'])
-        # Reset fridge warning when electricity comes back
         if new_data['charging']:
             fridge_warning_sent = False
-    
     # Check for fridge warning (battery at 53% and no electricity)
     if (not new_data['charging'] and 
         new_data['battery'] <= FRIDGE_WARNING_THRESHOLD and 
@@ -305,74 +286,61 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
         not fridge_warning_sent):
         await send_fridge_warning_alert(context, new_data['battery'])
         fridge_warning_sent = True
-    
-    # Reset fridge warning if battery goes above warning threshold or below activation threshold
     if (new_data['battery'] > FRIDGE_WARNING_THRESHOLD or 
         new_data['battery'] <= FRIDGE_ACTIVATION_THRESHOLD):
         fridge_warning_sent = False
-    
-    # Check for significant battery level changes (skip on first run)
     if 'battery' in old_data and abs(new_data['battery'] - old_data['battery']) >= BATTERY_CHANGE_THRESHOLD:
         await send_battery_alert(context, old_data['battery'], new_data['battery'])
-
     context.job.data = new_data
-    print(f"🔄 فحص مكتمل - {datetime.datetime.now().strftime('%H:%M:%S')}")
+    print(f"🔄 Check completed - {datetime.datetime.now().strftime('%H:%M:%S')}")
 
 async def send_api_failure_reminder(context: ContextTypes.DEFAULT_TYPE):
-    """Send reminder every 3 hours that API is still failing"""
     global last_api_failure_time
-    
     if last_api_failure_time:
         duration = datetime.datetime.now() - last_api_failure_time
         hours = int(duration.total_seconds() / 3600)
-        
+        txt = (
+            f"🔔 تذكير: API لا يزال معطلاً منذ {hours} ساعة\n"
+            "الرجاء الطلب من عمورة تحديث الخدمة"
+        )
+        log_bot_to_user(context.job.chat_id, txt)
         await context.bot.send_message(
             chat_id=context.job.chat_id,
-            text=(
-                f"🔔 تذكير: API لا يزال معطلاً منذ {hours} ساعة\n"
-                "الرجاء الطلب من عمورة تحديث الخدمة"
-            )
+            text=txt
         )
 
 # ============================== ALERT MESSAGES ============================== #
 async def send_power_alert(context: ContextTypes.DEFAULT_TYPE, power_usage: float):
-    """Send alert for high power consumption"""
     message = f"⚠️ تحذير! استهلاك الطاقة كبير جدًا: {power_usage:.0f}W"
     try:
+        log_bot_to_user(context.job.chat_id, message)
         await context.bot.send_message(chat_id=context.job.chat_id, text=message)
     except Exception as e:
-        print(f"فشل في إرسال تنبيه استهلاك الطاقة: {e}")
+        print(f"Failed to send power usage alert: {e}")
 
 async def send_power_reduced_alert(context: ContextTypes.DEFAULT_TYPE, power_usage: float):
-    """Send notification when power consumption decreases"""
     message = f"👍 تم خفض استهلاك الطاقة إلى {power_usage:.0f}W."
     try:
+        log_bot_to_user(context.job.chat_id, message)
         await context.bot.send_message(chat_id=context.job.chat_id, text=message)
     except Exception as e:
-        print(f"فشل في إرسال تنبيه خفض الطاقة: {e}")
+        print(f"Failed to send reduced power alert: {e}")
 
 async def send_electricity_alert(context: ContextTypes.DEFAULT_TYPE, is_charging: bool, battery_level: float):
-    """Send alert when electricity status changes, including battery level"""
     global last_electricity_time, electricity_start_time, electricity_duration
-    
     current_time = datetime.datetime.now(TIMEZONE)
-    
     if is_charging:
-        # Update tracking variables
         electricity_start_time = current_time
         last_electricity_time = current_time
-        
         message = (
             f"⚡ عادت الكهرباء! الشحن جارٍ الآن.\n"
             f"نسبة البطارية حالياً هي: {battery_level:.0f}%"
         )
     else:
-        # Record the last time electricity was available and calculate duration
         if electricity_start_time is not None:
             last_electricity_time = current_time
             electricity_duration = last_electricity_time - electricity_start_time
             duration_str = format_duration(electricity_duration)
-            
             message = (
                 f"⚠️ انقطعت الكهرباء! يتم التشغيل على البطارية.\n"
                 f"نسبة البطارية حالياً هي: {battery_level:.0f}%\n"
@@ -383,25 +351,25 @@ async def send_electricity_alert(context: ContextTypes.DEFAULT_TYPE, is_charging
                 f"⚠️ انقطعت الكهرباء! يتم التشغيل على البطارية.\n"
                 f"نسبة البطارية حالياً هي: {battery_level:.0f}%"
             )
-    
     try:
+        log_bot_to_user(context.job.chat_id, message)
         await context.bot.send_message(chat_id=context.job.chat_id, text=message)
     except Exception as e:
-        print(f"فشل في إرسال تنبيه الكهرباء: {e}")
+        print(f"Failed to send electricity alert: {e}")
 
 async def send_battery_alert(context: ContextTypes.DEFAULT_TYPE, old_value: float, new_value: float):
-    """Send alert when battery percentage changes significantly"""
     arrow = "⬆️ زيادة" if new_value > old_value else "⬇️ انخفاض"
+    message = f"{arrow}\nالشحن: {old_value:.0f}% → {new_value:.0f}%"
     try:
+        log_bot_to_user(context.job.chat_id, message)
         await context.bot.send_message(
             chat_id=context.job.chat_id,
-            text=f"{arrow}\nالشحن: {old_value:.0f}% → {new_value:.0f}%"
+            text=message
         )
     except Exception as e:
-        print(f"فشل في إرسال تنبيه البطارية: {e}")
+        print(f"Failed to send battery alert: {e}")
 
 async def send_fridge_warning_alert(context: ContextTypes.DEFAULT_TYPE, battery_level: float):
-    """Send warning when battery is close to fridge shutdown threshold"""
     remaining_percentage = battery_level - FRIDGE_ACTIVATION_THRESHOLD
     message = (
         f"🧊⚠️ تنبيه البراد!\n"
@@ -409,13 +377,13 @@ async def send_fridge_warning_alert(context: ContextTypes.DEFAULT_TYPE, battery_
         f"متبقي {remaining_percentage:.0f}% فقط لينطفئ البراد عند الوصول لـ {FRIDGE_ACTIVATION_THRESHOLD}%"
     )
     try:
+        log_bot_to_user(context.job.chat_id, message)
         await context.bot.send_message(chat_id=context.job.chat_id, text=message)
     except Exception as e:
-        print(f"فشل في إرسال تنبيه البراد: {e}")
+        print(f"Failed to send fridge warning alert: {e}")
 
 # ============================== STATUS HELPERS ============================== #
 def get_charging_status(current: float) -> str:
-    """Determine charging status based on current"""
     if current >= 60:
         return f"{current:.1f}A (الشحن سريع جداً 🔴)"
     elif 30 <= current < 60:
@@ -425,17 +393,15 @@ def get_charging_status(current: float) -> str:
     return f"{current:.1f}A (لا يوجد شحن ⚪)"
 
 def get_fridge_status(data: dict) -> str:
-    """Determine fridge status"""
-    if data['charging']:  # If electricity is available
+    if data['charging']:
         return "يعمل على الكهرباء ⚡"
-    elif data['battery'] > FRIDGE_ACTIVATION_THRESHOLD:  # If on battery but above threshold
+    elif data['battery'] > FRIDGE_ACTIVATION_THRESHOLD:
         return "يعمل على البطارية 🔋"
     elif data['fridge_voltage'] > 0 and not data['charging']:
         return "يعمل على البطارية (البطارية منخفضة) ⚠️"
     return "مطفئ ⛔"
 
 def get_consumption_status(power: float) -> str:
-    """Determine power consumption level"""
     if power <= POWER_THRESHOLDS[0]:
         return "عادي 🟢"
     elif POWER_THRESHOLDS[0] < power <= POWER_THRESHOLDS[1]:
@@ -444,80 +410,66 @@ def get_consumption_status(power: float) -> str:
 
 # ============================== API URL UPDATE COMMAND ============================== #
 async def update_api_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /update_api command - update the API URL"""
     global API_URL, api_failure_notified, last_api_failure_time, consecutive_failures
-    
-    # Check if a URL was provided
+    log_command("/update_api", update.effective_chat.id)
     if not context.args or len(context.args) < 1:
-        await update.message.reply_text(
+        msg = (
             "❌ يرجى توفير عنوان API الجديد بعد الأمر.\n\n"
             "مثال:\n"
             "/update_api https://web.dessmonitor.com/public/?sign=..."
         )
+        log_bot_to_user(update.effective_chat.id, msg)
+        await update.message.reply_text(msg)
         return
-    
-    # Update the API URL
     new_url = context.args[0]
     old_url = API_URL
     API_URL = new_url
-    
-    # Send immediate response and test the new URL
-    test_msg = await update.message.reply_text("⏳ اختبار الرابط الجديد...")
-    
-    # Test the new URL asynchronously
+    test_msg_txt = "⏳ اختبار الرابط الجديد..."
+    log_bot_to_user(update.effective_chat.id, test_msg_txt)
+    test_msg = await update.message.reply_text(test_msg_txt)
     loop = asyncio.get_event_loop()
     data = await loop.run_in_executor(None, get_system_data)
-    
+    log_api_data(data)
     if data:
-        # Cancel all reminder jobs for this user
         chat_id = update.effective_chat.id
         for job in context.job_queue.get_jobs_by_name(f"{chat_id}_reminder"):
             job.schedule_removal()
-        
-        # Reset failure flags and counters
         api_failure_notified = False
         last_api_failure_time = None
         consecutive_failures = 0
-        
-        await test_msg.edit_text(
+        msg = (
             f"✅ تم تحديث رابط API بنجاح!\n\n"
             f"يمكنك الآن استخدام /battery لعرض الحالة وبدء المراقبة"
         )
+        log_bot_to_user(update.effective_chat.id, msg)
+        await test_msg.edit_text(msg)
         print(f"✅ API URL updated: {old_url} -> {new_url}")
     else:
-        # Restore old URL if new one doesn't work
         API_URL = old_url
-        await test_msg.edit_text(
+        msg = (
             f"❌ الرابط الجديد لا يعمل!\n\n"
             f"تم الاحتفاظ بالرابط القديم.\n"
             f"يرجى التحقق من الرابط والمحاولة مرة أخرى."
         )
+        log_bot_to_user(update.effective_chat.id, msg)
+        await test_msg.edit_text(msg)
 
 # ============================== MAIN EXECUTION ============================== #
 def main():
-    """Initialize and start the bot"""
     if not TOKEN:
-        print("❌ خطأ: TELEGRAM_TOKEN غير محدد. يرجى تعيينه في متغيرات البيئة أو ملف config.py")
+        print("❌ ERROR: TELEGRAM_TOKEN is not set. Please set it in environment variables or config.py.")
         return
-        
     try:
-        print("🚀 بدء تشغيل البوت...")
-        
+        print("🚀 Starting the bot...")
         bot = ApplicationBuilder().token(TOKEN).build()
-        
-        # Add command handlers
         bot.add_handler(CommandHandler("start", start_command))
         bot.add_handler(CommandHandler("battery", battery_command))
         bot.add_handler(CommandHandler("stop", stop_command))
         bot.add_handler(CommandHandler("update_api", update_api_command))
-        
-        print("✅ البوت جاهز للعمل...")
-        
-        # Start polling
+        print("✅ Bot is ready and running...")
         bot.run_polling(drop_pending_updates=True)
-        
     except Exception as e:
-        print(f"❌ خطأ في تشغيل البوت: {e}")
+        print(f"❌ Error running the bot: {e}")
         raise e
 
 if __name__ == "__main__":
