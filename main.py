@@ -30,7 +30,6 @@ electricity_start_time = None  # To track when electricity started
 electricity_duration = None  # To store the duration of last electricity session
 fridge_warning_sent = False  # To track if fridge warning has been sent
 admin_chat_id = None  # To store admin's chat ID for notifications
-user_last_request = {}  # Track user requests to prevent spam
 api_failure_notified = False  # Track if we already sent API failure notification
 last_api_failure_time = None  # Track when API last failed
 
@@ -43,53 +42,58 @@ def get_system_data():
         print("❌ خطأ: عنوان API غير محدد")
         return None
     
-    try:
-        print(f"🔄 محاولة الاتصال بـ API... {datetime.datetime.now().strftime('%H:%M:%S')}")
-        response = requests.get(API_URL, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            params = {item['par']: item['val'] for item in data['dat']['parameter']}
+    # Try twice with longer timeout
+    for attempt in range(2):
+        try:
+            print(f"🔄 محاولة الاتصال بـ API... (محاولة {attempt + 1}/2) {datetime.datetime.now().strftime('%H:%M:%S')}")
+            response = requests.get(API_URL, timeout=15)
             
-            # Create the data dictionary
-            system_data = {
-                'battery': float(params.get('bt_battery_capacity', 0)),
-                'voltage': float(params.get('bt_grid_voltage', 0)),
-                'charging': float(params.get('bt_grid_voltage', 0)) > 0,
-                'power_usage': float(params.get('bt_load_active_power_sole', 0)) * 1000,
-                'fridge_voltage': float(params.get('bt_ac2_output_voltage', 0)),
-                'charge_current': float(params.get('bt_battery_charging_current', 0))
-            }
-            
-            # Update electricity tracking with correct timezone
-            current_time_tz = datetime.datetime.now(TIMEZONE)
-            
-            if system_data['charging']:
-                if electricity_start_time is None:
-                    electricity_start_time = current_time_tz
-                last_electricity_time = current_time_tz
+            if response.status_code == 200:
+                data = response.json()
+                params = {item['par']: item['val'] for item in data['dat']['parameter']}
+                
+                # Create the data dictionary
+                system_data = {
+                    'battery': float(params.get('bt_battery_capacity', 0)),
+                    'voltage': float(params.get('bt_grid_voltage', 0)),
+                    'charging': float(params.get('bt_grid_voltage', 0)) > 0,
+                    'power_usage': float(params.get('bt_load_active_power_sole', 0)) * 1000,
+                    'fridge_voltage': float(params.get('bt_ac2_output_voltage', 0)),
+                    'charge_current': float(params.get('bt_battery_charging_current', 0))
+                }
+                
+                # Update electricity tracking with correct timezone
+                current_time_tz = datetime.datetime.now(TIMEZONE)
+                
+                if system_data['charging']:
+                    if electricity_start_time is None:
+                        electricity_start_time = current_time_tz
+                    last_electricity_time = current_time_tz
+                else:
+                    # If electricity just stopped, calculate duration
+                    if electricity_start_time is not None and last_electricity_time is not None:
+                        electricity_duration = last_electricity_time - electricity_start_time
+                    electricity_start_time = None
+                
+                print("✅ تم الحصول على بيانات جديدة من API بنجاح")
+                return system_data
+                
             else:
-                # If electricity just stopped, calculate duration
-                if electricity_start_time is not None and last_electricity_time is not None:
-                    electricity_duration = last_electricity_time - electricity_start_time
-                electricity_start_time = None
-            
-            print("✅ تم الحصول على بيانات جديدة من API بنجاح")
-            return system_data
-            
-        else:
-            print(f"❌ API returned status code: {response.status_code}")
-            return None
-            
-    except requests.exceptions.Timeout:
-        print("❌ API timeout - انتهت مهلة الاتصال")
-        return None
-    except requests.exceptions.ConnectionError:
-        print("❌ Connection error - خطأ في الاتصال") 
-        return None
-    except Exception as e:
-        print(f"❌ خطأ في الاتصال بـ API: {str(e)}")
-        return None
+                print(f"❌ API returned status code: {response.status_code}")
+                
+        except requests.exceptions.Timeout:
+            print(f"❌ API timeout - المحاولة {attempt + 1}")
+        except requests.exceptions.ConnectionError:
+            print(f"❌ Connection error - المحاولة {attempt + 1}") 
+        except Exception as e:
+            print(f"❌ خطأ في الاتصال بـ API: {str(e)} - المحاولة {attempt + 1}")
+        
+        # Wait 1 second before retry (only on first attempt)
+        if attempt == 0:
+            import time
+            time.sleep(1)
+    
+    return None
 
 def format_duration(duration):
     """Format duration into readable Arabic text"""
@@ -138,33 +142,17 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /battery command - show status and start monitoring"""
-    global admin_chat_id, user_last_request, api_failure_notified
+    global admin_chat_id, api_failure_notified
     
     # Save the user's chat ID as admin
     admin_chat_id = update.effective_chat.id
-    user_id = update.effective_user.id
     
-    # Rate limiting: prevent spam requests (max 1 request per 3 seconds per user)
-    current_time = datetime.datetime.now()
-    if user_id in user_last_request:
-        time_diff = (current_time - user_last_request[user_id]).seconds
-        if time_diff < 3:
-            await update.message.reply_text(
-                f"⏳ انتظر {3 - time_diff} ثانية قبل الطلب مرة أخرى"
-            )
-            return
-    
-    user_last_request[user_id] = current_time
-    
-    # Send immediate response to user
-    status_msg = await update.message.reply_text("⏳ جاري الحصول على البيانات...")
-    
-    # Get data asynchronously (non-blocking)
+    # Get data immediately
     loop = asyncio.get_event_loop()
     data = await loop.run_in_executor(None, get_system_data)
     
     if not data:
-        await status_msg.edit_text(
+        await update.message.reply_text(
             "⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة"
         )
         return
@@ -172,8 +160,9 @@ async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Reset API failure flag if we got data successfully
     api_failure_notified = False
     
-    # Update the message with actual data
-    await edit_status_message(status_msg, data)
+    # Send the data directly
+    msg = format_status_message(data)
+    await update.message.reply_text(msg)
     start_auto_monitoring(update, context, data)
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -188,8 +177,8 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ المراقبة التلقائية غير مفعلة حالياً.")
 
-async def edit_status_message(message, data: dict):
-    """Format and edit existing message with system status"""
+def format_status_message(data: dict) -> str:
+    """Format system status message"""
     global last_electricity_time, electricity_duration
     
     # Format the electricity time string with 12-hour format
@@ -215,7 +204,7 @@ async def edit_status_message(message, data: dict):
         f"🧊 حالة البراد: {get_fridge_status(data)}\n"
         f"⏱️ اخر توقيت لوجود الكهرباء: {electricity_time_str}"
     )
-    await message.edit_text(status_text)
+    return status_text
 
 # ============================== AUTOMATIC MONITORING ============================== #
 def start_auto_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, initial_data: dict):
@@ -269,6 +258,9 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
                 chat_id=context.job.chat_id,
                 name=f"{context.job.chat_id}_reminder"
             )
+        
+        # Stop the monitoring job
+        context.job.schedule_removal()
         return
     
     # If we got data successfully, reset the failure flag
