@@ -263,6 +263,7 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
     for job in context.job_queue.get_jobs_by_name(f"{context.job.chat_id}_reminder"):
         job.schedule_removal()
     if not old_data:
+        new_data['reported_battery'] = new_data['battery']  # 👈 هذا السطر مهم
         context.job.data = new_data
         print(f"✅ First check - data saved - {datetime.datetime.now().strftime('%H:%M:%S')}")
         return
@@ -289,8 +290,15 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
     if (new_data['battery'] > FRIDGE_WARNING_THRESHOLD or 
         new_data['battery'] <= FRIDGE_ACTIVATION_THRESHOLD):
         fridge_warning_sent = False
-    if 'battery' in old_data and abs(new_data['battery'] - old_data['battery']) >= BATTERY_CHANGE_THRESHOLD:
-        await send_battery_alert(context, old_data['battery'], new_data['battery'])
+    # التحقق من تغير البطارية بنسبة 10%
+    last_reported = old_data.get('reported_battery', old_data.get('battery'))
+    
+    if abs(new_data['battery'] - last_reported) >= BATTERY_CHANGE_THRESHOLD:
+        await send_battery_alert(context, last_reported, new_data['battery'])
+        new_data['reported_battery'] = new_data['battery']  # تحديث النقطة المرجعية فقط بعد الإبلاغ
+    else:
+        new_data['reported_battery'] = last_reported  # الاحتفاظ بالنقطة المرجعية القديمة
+    
     context.job.data = new_data
     print(f"🔄 Check completed - {datetime.datetime.now().strftime('%H:%M:%S')}")
 
