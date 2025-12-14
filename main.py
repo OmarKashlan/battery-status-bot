@@ -168,6 +168,9 @@ async def battery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log_bot_to_user(update.effective_chat.id, fail_text)
         await status_msg.edit_text(fail_text)
         return
+
+    data['reported_battery'] = data['battery']
+
     api_failure_notified = False
     consecutive_failures = 0
     msg = format_status_message(data)
@@ -234,40 +237,33 @@ def start_auto_monitoring(update: Update, context: ContextTypes.DEFAULT_TYPE, in
 
 async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
     global last_power_usage, fridge_warning_sent, api_failure_notified, last_api_failure_time, consecutive_failures
+    
     old_data = context.job.data
     loop = asyncio.get_event_loop()
     new_data = await loop.run_in_executor(None, get_system_data)
     log_api_data(new_data)
+
+    # --- 1. Handle API Failure ---
     if not new_data:
         consecutive_failures += 1
         print(f"📡 Failed to get data (attempt {consecutive_failures}/10)")
         if consecutive_failures >= 10 and not api_failure_notified:
             txt = "⚠️ تعذر الحصول على البيانات، الرجاء الطلب من عمورة تحديث الخدمة"
             log_bot_to_user(context.job.chat_id, txt)
-            await context.bot.send_message(
-                chat_id=context.job.chat_id, 
-                text=txt
-            )
+            await context.bot.send_message(chat_id=context.job.chat_id, text=txt)
             api_failure_notified = True
             last_api_failure_time = datetime.datetime.now()
-            context.job_queue.run_repeating(
-                send_api_failure_reminder,
-                interval=10800,  # 3 hours = 10800 seconds
-                first=10800,
-                chat_id=context.job.chat_id,
-                name=f"{context.job.chat_id}_reminder"
-            )
+            context.job_queue.run_repeating(send_api_failure_reminder, interval=10800, first=10800, chat_id=context.job.chat_id, name=f"{context.job.chat_id}_reminder")
         return
+
     consecutive_failures = 0
     api_failure_notified = False
     for job in context.job_queue.get_jobs_by_name(f"{context.job.chat_id}_reminder"):
         job.schedule_removal()
-    if not old_data:
-        new_data['reported_battery'] = new_data['battery']  # 👈 هذا السطر مهم
-        context.job.data = new_data
-        print(f"✅ First check - data saved - {datetime.datetime.now().strftime('%H:%M:%S')}")
-        return
-    # Check power usage changes
+
+    # --- 2. Check Standard Alerts ---
+    
+    # Power Usage
     if new_data['power_usage'] > POWER_THRESHOLDS[1]:
         if last_power_usage is None:
             await send_power_alert(context, new_data['power_usage'])
@@ -275,30 +271,42 @@ async def check_for_changes(context: ContextTypes.DEFAULT_TYPE):
     elif new_data['power_usage'] <= POWER_THRESHOLDS[1] and old_data.get('power_usage', 0) > POWER_THRESHOLDS[1]:
         await send_power_reduced_alert(context, new_data['power_usage'])
         last_power_usage = None
-    # Check if electricity status changed
+    
+    # Electricity Status
     if old_data.get('charging', False) != new_data['charging']:
         await send_electricity_alert(context, new_data['charging'], new_data['battery'])
         if new_data['charging']:
             fridge_warning_sent = False
-    # Check for fridge warning (battery at 53% and no electricity)
+
+    # Fridge Warning
     if (not new_data['charging'] and 
         new_data['battery'] <= FRIDGE_WARNING_THRESHOLD and 
         new_data['battery'] > FRIDGE_ACTIVATION_THRESHOLD and 
         not fridge_warning_sent):
         await send_fridge_warning_alert(context, new_data['battery'])
         fridge_warning_sent = True
-    if (new_data['battery'] > FRIDGE_WARNING_THRESHOLD or 
-        new_data['battery'] <= FRIDGE_ACTIVATION_THRESHOLD):
+    if (new_data['battery'] > FRIDGE_WARNING_THRESHOLD or new_data['battery'] <= FRIDGE_ACTIVATION_THRESHOLD):
         fridge_warning_sent = False
-    # التحقق من تغير البطارية بنسبة 10%
-    last_reported = old_data.get('reported_battery', old_data.get('battery'))
+
+    # --- 3. FIX PART 2: THE 10% BATTERY CHECK ---
     
+    # Get the anchor we set in battery_command. 
+    # If it's missing (rare case), default to current battery.
+    last_reported = old_data.get('reported_battery', new_data['battery'])
+    
+    # Calculate the difference between NOW and the ANCHOR
     if abs(new_data['battery'] - last_reported) >= BATTERY_CHANGE_THRESHOLD:
+        # Threshold met! Send alert.
         await send_battery_alert(context, last_reported, new_data['battery'])
-        new_data['reported_battery'] = new_data['battery']  # تحديث النقطة المرجعية فقط بعد الإبلاغ
+        
+        # MOVE THE ANCHOR to the new level
+        new_data['reported_battery'] = new_data['battery']
     else:
-        new_data['reported_battery'] = last_reported  # الاحتفاظ بالنقطة المرجعية القديمة
+        # Threshold NOT met.
+        # KEEP THE OLD ANCHOR so we don't "forget" the starting point.
+        new_data['reported_battery'] = last_reported
     
+    # Save for next loop
     context.job.data = new_data
     print(f"🔄 Check completed - {datetime.datetime.now().strftime('%H:%M:%S')}")
 
