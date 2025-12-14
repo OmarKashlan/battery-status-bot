@@ -344,29 +344,37 @@ async def send_power_reduced_alert(context: ContextTypes.DEFAULT_TYPE, power_usa
 
 async def send_electricity_alert(context: ContextTypes.DEFAULT_TYPE, is_charging: bool, battery_level: float):
     global last_electricity_time, electricity_start_time, electricity_duration
+    
     current_time = datetime.datetime.now(TIMEZONE)
+    
     if is_charging:
+        # حالة عودة الكهرباء
         electricity_start_time = current_time
         last_electricity_time = current_time
+        # تصفير مدة الجلسة السابقة عند بدء جلسة جديدة
+        electricity_duration = None
+        
         message = (
-            f"⚡ عادت الكهرباء! الشحن جارٍ الآن.\n"
+            f"✅ عادت الكهرباء! الشحن جارٍ الآن.\n"
             f"نسبة البطارية حالياً هي: {battery_level:.0f}%"
         )
     else:
-        if electricity_start_time is not None:
-            last_electricity_time = current_time
-            electricity_duration = last_electricity_time - electricity_start_time
+        # حالة انقطاع الكهرباء
+        # نتحقق مما إذا كانت electricity_duration قد حُسبت في get_system_data
+        if electricity_duration is not None:
             duration_str = format_duration(electricity_duration)
             message = (
-                f"⚠️ انقطعت الكهرباء! يتم التشغيل على البطارية.\n"
+                f"⛔ انقطعت الكهرباء! يتم التشغيل على البطارية.\n"
                 f"نسبة البطارية حالياً هي: {battery_level:.0f}%\n"
                 f"مدة بقاء الكهرباء: {duration_str}"
             )
         else:
+            # في حال لم يتم حساب المدة لسبب ما (مثلاً بدأ البوت والكهرباء مقطوعة فوراً)
             message = (
-                f"⚠️ انقطعت الكهرباء! يتم التشغيل على البطارية.\n"
+                f"⛔ انقطعت الكهرباء! يتم التشغيل على البطارية.\n"
                 f"نسبة البطارية حالياً هي: {battery_level:.0f}%"
             )
+
     try:
         log_bot_to_user(context.job.chat_id, message)
         await context.bot.send_message(chat_id=context.job.chat_id, text=message)
