@@ -19,8 +19,8 @@ TIMEZONE = pytz.timezone('Asia/Damascus')
 
 # Thresholds
 BATTERY_CHANGE_THRESHOLD = 10   # Battery change percentage that triggers alert
-FRIDGE_ACTIVATION_THRESHOLD = 50  # Battery percentage needed for fridge
-FRIDGE_WARNING_THRESHOLD = 53     # Battery percentage to warn about fridge shutdown
+FRIDGE_ACTIVATION_THRESHOLD = 65  # Battery percentage needed for fridge
+FRIDGE_WARNING_THRESHOLD = 68     # Battery percentage to warn about fridge shutdown
 POWER_THRESHOLDS = (500, 850)  # Power thresholds (normal, medium, high) in watts
 
 # Global variables
@@ -383,7 +383,7 @@ async def send_electricity_alert(context: ContextTypes.DEFAULT_TYPE, is_charging
 
 async def send_battery_alert(context: ContextTypes.DEFAULT_TYPE, old_value: float, new_value: float):
     arrow = "⬆️ زيادة" if new_value > old_value else "⬇️ انخفاض"
-    message = f"{arrow}\nالشحن: {old_value:.0f}% → {new_value:.0f}%"
+    message = f"{arrow}\nالشحن: {old_value:.0f}% ← {new_value:.0f}%"
     try:
         log_bot_to_user(context.job.chat_id, message)
         await context.bot.send_message(
